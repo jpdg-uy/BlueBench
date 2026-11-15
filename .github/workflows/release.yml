@@ -45,7 +45,7 @@ jobs:
           dist\BlueBench\bluebench-cli.exe --version
           if ($LASTEXITCODE) { throw "bluebench-cli.exe does not start" }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: BlueBench-windows
           path: |
