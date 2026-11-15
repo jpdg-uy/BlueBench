@@ -1,0 +1,67 @@
+name: Release
+
+# Push a tag like v0.2.0 to build and publish a release. Run it by hand
+# (Actions → Release → Run workflow) to only build and download the files.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $v = python -c "import re; print(re.search(r'__version__ = \"(.+)\"', open('src/bluebench/__init__.py').read()).group(1))"
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match __version__ $v" }
+
+      - name: Build exe (single file + folder zip)
+        shell: pwsh
+        run: |
+          python -m venv build\venv
+          ./build_exe.ps1 -Layout Both
+          build\venv\Scripts\python.exe -m pip wheel --quiet --no-deps --wheel-dir dist .
+
+      - name: Smoke test the frozen app
+        shell: pwsh
+        run: |
+          # No Bluetooth radio on the runner: the scan part fails, but the app must
+          # start and report that its modules (bleak, pyserial) were bundled.
+          Start-Process dist\BlueBench\BlueBench.exe -ArgumentList '--self-test', "$PWD\selftest.txt" -Wait
+          Get-Content selftest.txt
+          $r = Get-Content selftest.txt -Raw | ConvertFrom-Json
+          if (-not $r.frozen -or -not $r.pyserial -or $r.bleak -eq '?') { throw "Frozen app is missing modules" }
+          dist\BlueBench\bluebench-cli.exe --version
+          if ($LASTEXITCODE) { throw "bluebench-cli.exe does not start" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BlueBench-windows
+          path: |
+            dist/BlueBench-win64.zip
+            dist/BlueBench.exe
+            dist/bluebench-*.whl
+            docs/BlueBench-Guia.pdf
+            docs/BlueBench-CLI.pdf
+            docs/BlueBench-API-Python.pdf
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" dist/BlueBench-win64.zip dist/BlueBench.exe (Get-Item dist/bluebench-*.whl) `
+            docs/BlueBench-Guia.pdf docs/BlueBench-CLI.pdf docs/BlueBench-API-Python.pdf `
+            --title "BlueBench ${{ github.ref_name }}" --generate-notes

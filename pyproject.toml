@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bluebench"
+version = "0.3.0"
+description = "BLE workbench for Windows: GUI, command line and Python API (scanner, GATT, UART, macros, DFU, sniffer)"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+readme = "README.md"
+authors = [{ name = "Juan Pablo Di Giovanni" }]
+keywords = ["bluetooth", "ble", "gatt", "nrf", "dfu", "sniffer"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: System :: Hardware",
+    "Development Status :: 4 - Beta",
+]
+dependencies = [
+    "bleak>=0.22",
+    "PySide6>=6.6",  # 6.12 exit abort is worked around in ui/qt_compat.py
+    "qasync>=0.27",
+    "pyserial>=3.5",  # nRF Sniffer (Traffic tab)
+]
+
+[project.urls]
+Homepage = "https://github.com/jpdg-uy/BlueBench"
+Issues = "https://github.com/jpdg-uy/BlueBench/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.gui-scripts]
+bluebench = "bluebench.__main__:main"   # the app (no console window on Windows)
+
+[project.scripts]
+bluebench-cli = "bluebench.cli:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+bluebench = ["data/*.json", "data/*.png"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["src", "tests"]

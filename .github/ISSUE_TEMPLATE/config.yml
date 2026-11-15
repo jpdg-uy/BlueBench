@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: User guide (Spanish, PDF)
+    url: https://github.com/jpdg-uy/BlueBench/blob/main/docs/BlueBench-Guia.pdf
+    about: How to use every feature, plus a troubleshooting table.

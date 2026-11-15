@@ -1,0 +1,27 @@
+name: Feature request
+description: An idea for something BlueBench could do
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you need to do?
+      description: The task or problem, rather than a specific solution.
+      placeholder: When the scanner is full of devices I want to see only the ones from one vendor…
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could BlueBench help?
+      placeholder: A filter by company ID (e.g. 0x0059) in the scanner.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Scanner, Connection / GATT, UART terminal, Pairing / bonding, Macros, DFU, Traffic tab, Other]
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Screenshots, devices involved, how other tools do it…
