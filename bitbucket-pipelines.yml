@@ -1,0 +1,43 @@
+# Bitbucket mirror of the project (see CONTRIBUTING.md, "Bitbucket mirror").
+# Tests run on every push to main and on pull requests (Linux, headless Qt). Bitbucket
+# runners are Linux, so the Windows build stays on GitHub Actions: a pushed tag vX.Y.Z waits
+# for that GitHub release and copies its files to this repository's Downloads. That step
+# needs the secured repository variable BITBUCKET_ACCESS_TOKEN (repository:write).
+definitions:
+  steps:
+    - step: &oldest
+        name: Tests (Python 3.10, PySide6 6.9.3, oldest supported Qt)
+        image: python:3.10-slim
+        caches: [pip]
+        script:
+          - &qt-libs apt-get update -qq && apt-get install -y -qq --no-install-recommends libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libglib2.0-0 > /dev/null
+          - pip install -q -e ".[dev]" "PySide6==6.9.3"
+          - QT_QPA_PLATFORM=offscreen python -m pytest -q -p no:cacheprovider
+    - step: &newest
+        name: Tests (Python 3.13, newest PySide6)
+        image: python:3.13-slim
+        caches: [pip]
+        script:
+          - *qt-libs
+          - pip install -q -e ".[dev]"
+          - QT_QPA_PLATFORM=offscreen python -m pytest -q -p no:cacheprovider
+
+pipelines:
+  branches:
+    main:
+      - parallel:
+          - step: *oldest
+          - step: *newest
+  pull-requests:
+    "**":
+      - parallel:
+          - step: *oldest
+          - step: *newest
+  tags:
+    "v*":
+      - step:
+          name: Copy the GitHub release to Downloads
+          image: python:3.13-slim
+          max-time: 60
+          script:
+            - python packaging/bitbucket_release.py --from-github "$BITBUCKET_TAG"

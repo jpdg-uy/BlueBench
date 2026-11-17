@@ -1,13 +1,12 @@
-# Builds, checks and publishes a GitHub release from this PC (pushing a tag also
-# publishes one through .github/workflows/release.yml).
-# Usage:  powershell -ExecutionPolicy Bypass -File release.ps1 [-NoPublish] [-Draft] [-SkipBuild]
+# Builds and checks a release on this PC, then tags it. Publishing happens when the tag is
+# pushed: .github/workflows/release.yml builds on a Windows runner and publishes the GitHub
+# release, and bitbucket-pipelines.yml copies that release to the Bitbucket mirror.
+# Usage:  powershell -ExecutionPolicy Bypass -File release.ps1 [-NoPublish] [-SkipBuild]
 #   Runs the tests, builds dist\ (build_exe.ps1 -Layout Both), smoke-tests the frozen app
-#   and bluebench-cli.exe, then tags v<__version__> and runs "gh release create" with the
-#   zip, the exe, the Python wheel and the three PDF manuals.
-#   Needs gh (winget install GitHub.cli) unless -NoPublish.
+#   and bluebench-cli.exe, then creates the tag v<__version__> on HEAD. Push it with
+#   "git push origin v<__version__>" from the shell that has the keys of every push URL.
 param(
-    [switch]$NoPublish,   # build and check only
-    [switch]$Draft,       # publish as a draft release
+    [switch]$NoPublish,   # build and check only, no tag
     [switch]$SkipBuild    # reuse what is already in dist\
 )
 $ErrorActionPreference = "Stop"
@@ -17,7 +16,7 @@ $version = (Select-String -Path src\bluebench\__init__.py -Pattern '__version__ 
 $tag = "v$version"
 Write-Host "Releasing BlueBench $tag"
 
-# The release must match a commit that is already on GitHub.
+# The release must match a commit that is already pushed.
 if (git status --porcelain --untracked-files=no) { throw "Uncommitted changes: commit or stash them first" }
 # (origin refs are as fresh as the last push/fetch; no fetch here to avoid credential prompts)
 $head = git rev-parse HEAD
@@ -72,18 +71,10 @@ if ($LASTEXITCODE) { throw "bluebench-cli sniff ports failed: $ports" }
 $null = $ports | ConvertFrom-Json
 Write-Host "CLI ok ($cliVersion)"
 
-if ($NoPublish) { Write-Host "Built and checked; not published (-NoPublish)."; exit 0 }
-if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-    throw "gh not found. Install it (winget install GitHub.cli) and log in, or rerun with -NoPublish"
-}
+if ($NoPublish) { Write-Host "Built and checked; not tagged (-NoPublish)."; exit 0 }
 
 if (-not (git tag --list $tag)) {
     git tag -a $tag -m "BlueBench $tag"
-    git push origin $tag
-    if ($LASTEXITCODE) { throw "Pushing tag $tag failed" }
+    if ($LASTEXITCODE) { throw "Creating tag $tag failed" }
 }
-$flags = @("--title", "BlueBench $tag", "--generate-notes", "--verify-tag")
-if ($Draft) { $flags += "--draft" }
-gh release create $tag @assets @flags
-if ($LASTEXITCODE) { throw "gh release create failed" }
-Write-Host "Published $tag"
+Write-Host "Tagged $tag. Publish it with:  git push origin $tag"

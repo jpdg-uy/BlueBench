@@ -44,8 +44,24 @@ Bump `__version__` in `src/bluebench/__init__.py` (plus `pyproject.toml` and
     powershell -ExecutionPolicy Bypass -File release.ps1
 
 It runs the tests, builds the exe, the zip and the Python wheel, smoke-tests the frozen app
-and the CLI, tags `vX.Y.Z` and publishes the GitHub release with `gh` (`-NoPublish` only
-builds and checks, `-Draft` publishes a draft).
+and the CLI, and tags `vX.Y.Z` (`-NoPublish` only builds and checks). Pushing the tag
+publishes the release: the Release workflow builds everything again on a Windows runner and
+publishes the GitHub release with the zip, the exe, the wheel and the three PDF manuals.
 
-Pushing the tag is also enough on its own: the Release workflow builds everything on a
-Windows runner and publishes the release.
+    git push origin vX.Y.Z
+
+## Bitbucket mirror
+
+The project can also live in a Bitbucket Cloud repository, for teams that work there. The
+mirror has exactly the same commits: give `origin` a second push URL and every `git push`
+goes to both places.
+
+    git remote set-url --add --push origin https://github.com/jpdg-uy/BlueBench.git
+    git remote set-url --add --push origin git@bitbucket.org:WORKSPACE/REPO.git
+
+On Bitbucket, `bitbucket-pipelines.yml` runs the Linux tests on `main` and on pull requests.
+When a tag `vX.Y.Z` arrives it waits for the GitHub release of that tag, checks the sha256
+of every file and copies them to the repository's Downloads with the version in each name
+(`packaging/bitbucket_release.py --from-github`). That step needs a repository access token
+with the `repository:write` scope, saved as the secured repository variable
+`BITBUCKET_ACCESS_TOKEN` (Repository settings → Access tokens, then Repository variables).
