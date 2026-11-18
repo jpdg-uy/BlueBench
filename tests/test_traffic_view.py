@@ -102,3 +102,27 @@ def test_sniffer_controls(view):
 def test_app_toggle(view):
     view.app_check.setChecked(False)
     assert not view.app_capture.enabled
+
+
+def test_failed_open_points_at_the_other_sniffer_port(qapp, monkeypatch):
+    import test_sniffer as ts
+    # nRF52840 Dongle with the sniffer firmware 5: two starred ports, the sniffer on COM5
+    monkeypatch.setattr(tv, "list_ports", lambda: [ns.PortInfo("COM4", "USB Serial Device", True),
+                                                   ns.PortInfo("COM5", "USB Serial Device", True)])
+    store = PacketStore()
+    air = ns.AirCapture(store, serial_factory=lambda p, b: ts.FakeSerial(p, b, no_cts=p == "COM4"))
+    v = tv.TrafficView(store, AppCapture(store), air)
+    try:
+        assert v.port_combo.currentData() == "COM4"
+        v._toggle_sniffer()
+        assert ts.wait_for(lambda: "no answer on COM4" in v.air_state.text(), air, 5)
+        assert "try COM5" in v.air_state.text() and v.port_combo.currentData() == "COM5"
+        v._toggle_sniffer()
+        assert ts.wait_for(lambda: air.state == "scanning", air, 5)
+        assert v.air_state.text() == "Sniffer: scanning advertisements"
+        v._toggle_sniffer()
+        assert ts.wait_for(lambda: air.state == "idle", air, 5)
+        assert v.air_state.text() == "Sniffer: idle"          # stopped by hand: no hint
+    finally:
+        air.stop()
+        v.deleteLater()

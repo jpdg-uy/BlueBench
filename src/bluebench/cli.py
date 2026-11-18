@@ -402,13 +402,17 @@ async def cmd_sniff_capture(args, out: Out) -> int:
     if port is None:
         ports = api.sniffer_ports()
         likely = [p for p in ports if p.likely]
-        if len(likely) != 1:
+        if len(likely) > 1:
+            port = await api.find_sniffer()
+        elif likely:
+            port = likely[0].device
+        if port is None:
             boot = [p.device for p in ports if p.bootloader]
             hint = (f"; {', '.join(boot)} is a Nordic DFU bootloader: flash the nRF Sniffer"
                     " firmware on it first") if boot and not likely else ""
             raise UsageError("give --port (found " + (", ".join(p.device for p in likely)
-                                                     or "no likely nRF Sniffer") + ")" + hint)
-        port = likely[0].device
+                                                     or "no likely nRF Sniffer") + ")"
+                             + (", none answered" if len(likely) > 1 else "") + hint)
 
     def show(p) -> None:
         if not args.print:

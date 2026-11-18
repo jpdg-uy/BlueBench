@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -37,6 +38,22 @@ class SniffResult:
 def sniffer_ports() -> list[PortInfo]:
     """Serial ports, likely nRF Sniffers (Nordic/SEGGER USB ids) first (``.likely``)."""
     return nrf_sniffer.list_ports()
+
+
+async def find_sniffer(serial_factory=None) -> str | None:
+    """The likely port where an nRF Sniffer answers (it is pinged), or None."""
+    # A plain thread, not asyncio.to_thread: the default executor breaks on Python 3.15.
+    loop = asyncio.get_running_loop()
+    done: asyncio.Future = loop.create_future()
+
+    def work() -> None:
+        try:
+            r = nrf_sniffer.find_sniffer(None, serial_factory or nrf_sniffer.open_serial)
+            loop.call_soon_threadsafe(lambda: done.done() or done.set_result(r))
+        except BaseException as exc:      # noqa: BLE001 - handed to the awaiting task
+            loop.call_soon_threadsafe(lambda: done.done() or done.set_exception(exc))
+    threading.Thread(target=work, name="find-sniffer", daemon=True).start()
+    return await done
 
 
 async def sniff(port: str, duration: float, pcap_path: str | Path | None = None, *,

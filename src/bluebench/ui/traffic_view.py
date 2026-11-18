@@ -271,6 +271,7 @@ class TrafficView(QWidget):
         layout.addWidget(split, 1)
 
         self._current: CapturedPacket | None = None
+        self._opening_port: str | None = None   # port being opened, for the failure hint
         self.model.rowsInserted.connect(self._on_rows_inserted)
         self.model.modelReset.connect(self._on_model_reset)
         air.state_changed.connect(self._on_air_state)
@@ -301,15 +302,35 @@ class TrafficView(QWidget):
 
     def _toggle_sniffer(self) -> None:
         if self.air.running:
+            self._opening_port = None       # stopped by hand: not a failure
             self.air.stop()
             return
         port = self.port_combo.currentData()
         if port:
+            self._opening_port = port
             self.air.start(port)
+
+    def _other_likely_port(self, port: str) -> int:
+        """Combo index of another starred port (the nRF52840 Dongle with the sniffer
+        firmware 5 shows two serial ports, and only one of them is the sniffer)."""
+        for i in range(self.port_combo.count()):
+            if self.port_combo.itemData(i) not in (None, port) and \
+                    self.port_combo.itemText(i).endswith("★"):
+                return i
+        return -1
 
     def _on_air_state(self, state: str) -> None:
         text = {"idle": "idle", "opening": "opening…", "scanning": "scanning advertisements",
                 "following": "following"}.get(state, state)
+        failed = self._opening_port if state == "idle" else None
+        if state != "opening":
+            self._opening_port = None
+        if failed:
+            other = self._other_likely_port(failed)
+            text = f"no answer on {failed}"
+            if other >= 0:
+                self.port_combo.setCurrentIndex(other)
+                text += f"; try {self.port_combo.itemData(other)}"
         if state == "following" and self.air.following:
             adv = self.air.advertisers.get(self.air.following)
             text = f"following {adv.name if adv and adv.name else self.air.following}"

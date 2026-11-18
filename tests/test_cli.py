@@ -276,3 +276,16 @@ def test_sniff_capture_points_at_a_dongle_in_its_bootloader(capsys, monkeypatch)
         ns.PortInfo("COM3", "nRF52 SDFU USB (COM3)", False, bootloader=True)])
     code, _, err = run(capsys, "sniff", "capture", "-t", "0.1")
     assert code == 2 and "COM3 is a Nordic DFU bootloader" in err
+
+
+def test_sniff_capture_picks_the_port_that_answers(capsys, monkeypatch):
+    import test_sniffer as ts
+    from bluebench.sniffer import nrf_sniffer as ns
+    monkeypatch.setattr(ns, "list_ports", lambda: [ns.PortInfo("COM4", "USB Serial Device", True),
+                                                   ns.PortInfo("COM5", "USB Serial Device", True)])
+    monkeypatch.setattr(ns, "open_serial", lambda p, b: ts.FakeSerial(p, b, no_cts=p == "COM4"))
+    code, _, err = run(capsys, "sniff", "capture", "-t", "0.1")
+    assert code == 0 and "Capturing on COM5" in err
+    monkeypatch.setattr(ns, "open_serial", lambda p, b: ts.FakeSerial(p, b, answer_baud=0))
+    code, _, err = run(capsys, "sniff", "capture", "-t", "0.1")
+    assert code == 2 and "found COM4, COM5), none answered" in err

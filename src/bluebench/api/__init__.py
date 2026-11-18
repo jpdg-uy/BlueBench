@@ -30,10 +30,10 @@ from .errors import (BlueBenchError, BluetoothUnavailable, ConnectFailed, Device
                      DfuFailed, GattError, MacroFailed, NotConnected, PairingFailed,
                      SnifferError)
 from .scan import ScanResult, find, scan, scan_stream
-from .sniff import SniffResult, sniff, sniffer_ports
+from .sniff import SniffResult, find_sniffer, sniff, sniffer_ports
 
 __all__ = [
-    "scan", "scan_stream", "find", "connect", "sniff", "sniffer_ports", "load_macro",
+    "scan", "scan_stream", "find", "connect", "sniff", "sniffer_ports", "find_sniffer", "load_macro",
     "is_address", "DeviceFilter", "Macro", "Step", "ScanResult", "Device", "Service",
     "Characteristic", "Descriptor", "Notifications", "Uart", "MacroResult", "StepResult", "DfuResult",
     "SniffResult", "BlueBenchError", "BluetoothUnavailable", "DeviceNotFound",

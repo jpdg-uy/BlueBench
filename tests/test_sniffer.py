@@ -263,10 +263,11 @@ def test_store_trims_and_numbers(qapp):
 
 # -- air capture over a fake serial port ---------------------------------------------
 class FakeSerial:
-    """Answers PING only at ``answer_baud``; ``inject`` queues sniffer frames."""
+    """Answers PING only at ``answer_baud``; ``inject`` queues sniffer frames.
+    ``no_cts``: writes time out, like a port whose other end never raises CTS."""
 
-    def __init__(self, port, baud, answer_baud=1_000_000):
-        self.port, self.baud, self.answer = port, baud, answer_baud
+    def __init__(self, port, baud, answer_baud=1_000_000, no_cts=False):
+        self.port, self.baud, self.answer, self.no_cts = port, baud, answer_baud, no_cts
         self.rx = deque()
         self.lock = threading.Lock()
         self.commands: list[ns.SnifferFrame] = []
@@ -281,6 +282,8 @@ class FakeSerial:
         return len(self.rx)
 
     def write(self, data):
+        if self.no_cts:
+            raise TimeoutError("Write timeout")      # what pyserial's write_timeout raises
         for raw in self._dec.feed(data):
             f = ns.parse_frame(raw)
             self.commands.append(f)
@@ -384,3 +387,20 @@ def test_list_ports_tells_the_dongle_bootloader_from_a_sniffer(monkeypatch):
     assert [(p.device, p.likely, p.bootloader) for p in ports] == [
         ("COM9", True, False), ("COM1", False, False), ("COM3", False, True)]
     assert "flash the nRF Sniffer firmware" in ports[2].label and "★" not in ports[2].label
+
+
+def test_find_sniffer_pings_the_likely_ports():
+    opened: list[FakeSerial] = []
+
+    def factory(port, baud):
+        if port == "COM6":
+            raise ns.SnifferError("Cannot open COM6: access denied")
+        opened.append(FakeSerial(port, baud, no_cts=port == "COM4"))
+        return opened[-1]
+    ports = [ns.PortInfo("COM1", "Serial", False), ns.PortInfo("COM6", "busy", True),
+             ns.PortInfo("COM4", "USB Serial Device", True),
+             ns.PortInfo("COM5", "USB Serial Device", True)]
+    assert ns.find_sniffer(ports, factory) == "COM5"
+    assert {s.port for s in opened} == {"COM4", "COM5"}          # COM1 is never touched
+    assert all(s.closed for s in opened)
+    assert ns.find_sniffer(ports[:3], factory) is None

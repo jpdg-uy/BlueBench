@@ -52,6 +52,9 @@ NORDIC_VIDS = (0x1915, 0x1366)   # Nordic Semiconductor, SEGGER (DK J-Link VCOM)
 # is not a sniffer yet; the sniffer firmware has to be flashed first.
 NORDIC_BOOTLOADER = (0x1915, 0x521F)
 PROBE_TIMEOUT_S = 0.6
+# With hardware flow control a write waits for CTS, forever on a port whose other end never
+# raises it (the first serial port of the nRF52840 Dongle with the sniffer firmware 5).
+WRITE_TIMEOUT_S = 1.0
 DRAIN_MS = 50
 
 
@@ -240,12 +243,57 @@ def open_serial(port: str, baud: int):
     except ImportError:
         raise SnifferError("pyserial is not installed") from None
     try:
-        return serial.Serial(port, baud, rtscts=True, timeout=0.05)
+        return serial.Serial(port, baud, rtscts=True, timeout=0.05,
+                             write_timeout=WRITE_TIMEOUT_S)
     except (serial.SerialException, OSError, ValueError) as exc:
         raise SnifferError(f"Cannot open {port}: {exc}") from None
 
 
 # -- serial link (worker thread) ------------------------------------------
+def probe(port: str, serial_factory=open_serial, stop: threading.Event | None = None):
+    """Ping ``port`` at each baud rate: (open serial, baud) if an nRF Sniffer answers,
+    else None. Raises SnifferError if the port cannot be opened."""
+    for baud in BAUD_RATES:
+        if stop is not None and stop.is_set():
+            return None
+        ser = serial_factory(port, baud)
+        try:
+            ser.reset_input_buffer()
+        except Exception:
+            pass
+        try:
+            ser.write(build_command(PING_REQ, b"", 0))
+        except Exception:                 # write timeout: nobody reads this port
+            ser.close()
+            continue
+        dec = SlipDecoder()
+        deadline = time.monotonic() + PROBE_TIMEOUT_S
+        while time.monotonic() < deadline and not (stop is not None and stop.is_set()):
+            for raw in dec.feed(ser.read(256)):
+                f = parse_frame(raw)
+                if f is not None and f.id == PING_RESP:
+                    return ser, baud
+        ser.close()
+    return None
+
+
+def find_sniffer(ports: list[PortInfo] | None = None, serial_factory=open_serial) -> str | None:
+    """The first likely port where an nRF Sniffer answers. The sniffer firmware 5 on the
+    nRF52840 Dongle shows two serial ports with the same USB ids, and only one is the
+    sniffer."""
+    for p in (list_ports() if ports is None else ports):
+        if not p.likely:
+            continue
+        try:
+            found = probe(p.device, serial_factory)
+        except SnifferError:
+            continue
+        if found is not None:
+            found[0].close()
+            return p.device
+    return None
+
+
 class SnifferLink:
     """Owns the port. Items for the main thread land in ``queue`` as
     ("opened", baud) | ("frame", SnifferFrame, host_monotonic) | ("error", text) | ("closed",).
@@ -286,24 +334,10 @@ class SnifferLink:
 
     # worker thread
     def _probe(self):
-        for baud in BAUD_RATES:
-            if self._stop.is_set():
-                return None
-            ser = self._factory(self.port, baud)
-            try:
-                ser.reset_input_buffer()
-            except Exception:
-                pass
-            ser.write(build_command(PING_REQ, b"", 0))
-            dec = SlipDecoder()
-            deadline = time.monotonic() + PROBE_TIMEOUT_S
-            while time.monotonic() < deadline and not self._stop.is_set():
-                for raw in dec.feed(ser.read(256)):
-                    f = parse_frame(raw)
-                    if f is not None and f.id == PING_RESP:
-                        self.baud = baud
-                        return ser
-            ser.close()
+        found = probe(self.port, self._factory, self._stop)
+        if found is not None:
+            ser, self.baud = found
+            return ser
         if self._stop.is_set():
             return None
         raise SnifferError(f"No nRF Sniffer answered on {self.port} (tried "
