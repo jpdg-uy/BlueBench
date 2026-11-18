@@ -48,6 +48,9 @@ PACKET_EVENTS = (EVENT_PACKET_ADV_PDU, EVENT_PACKET_DATA_PDU)
 PROTOVER_V1 = 1
 BAUD_RATES = (1_000_000, 460_800)
 NORDIC_VIDS = (0x1915, 0x1366)   # Nordic Semiconductor, SEGGER (DK J-Link VCOM)
+# nRF52840 Dongle waiting in its USB DFU bootloader (red LED pulsing): a Nordic port that
+# is not a sniffer yet; the sniffer firmware has to be flashed first.
+NORDIC_BOOTLOADER = (0x1915, 0x521F)
 PROBE_TIMEOUT_S = 0.6
 DRAIN_MS = 50
 
@@ -208,10 +211,13 @@ def parse_packet_event(frame: SnifferFrame, clock: TimestampTracker) -> tuple[by
 class PortInfo:
     device: str
     description: str
-    likely: bool      # Nordic / SEGGER USB ids
+    likely: bool             # Nordic / SEGGER USB ids
+    bootloader: bool = False  # Nordic DFU bootloader: no sniffer firmware on it
 
     @property
     def label(self) -> str:
+        if self.bootloader:
+            return f"{self.device} — {self.description}  (DFU bootloader: flash the nRF Sniffer firmware)"
         return f"{self.device} — {self.description}" + ("  ★" if self.likely else "")
 
 
@@ -220,7 +226,10 @@ def list_ports() -> list[PortInfo]:
         from serial.tools import list_ports as lp
     except ImportError:
         return []
-    out = [PortInfo(p.device, p.description or "", p.vid in NORDIC_VIDS) for p in lp.comports()]
+    out = []
+    for p in lp.comports():
+        boot = (p.vid, p.pid) == NORDIC_BOOTLOADER
+        out.append(PortInfo(p.device, p.description or "", p.vid in NORDIC_VIDS and not boot, boot))
     out.sort(key=lambda p: (not p.likely, p.device))
     return out
 

@@ -369,3 +369,18 @@ def test_air_capture_reports_open_failure(qapp):
     air.start("COM4")
     assert wait_for(lambda: air.state == "idle", air)
     assert "Cannot open COM4: access denied" in msgs
+
+
+def test_list_ports_tells_the_dongle_bootloader_from_a_sniffer(monkeypatch):
+    from serial.tools import list_ports as lp
+
+    def port(dev, desc, vid, pid):
+        return SimpleNamespace(device=dev, description=desc, vid=vid, pid=pid)
+    monkeypatch.setattr(lp, "comports", lambda: [
+        port("COM1", "Communications Port", None, None),
+        port("COM3", "nRF52 SDFU USB (COM3)", 0x1915, 0x521F),     # Dongle, DFU bootloader
+        port("COM9", "nRF Sniffer for Bluetooth LE", 0x1915, 0x522A)])
+    ports = ns.list_ports()
+    assert [(p.device, p.likely, p.bootloader) for p in ports] == [
+        ("COM9", True, False), ("COM1", False, False), ("COM3", False, True)]
+    assert "flash the nRF Sniffer firmware" in ports[2].label and "★" not in ports[2].label

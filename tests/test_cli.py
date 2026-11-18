@@ -238,7 +238,7 @@ def test_sniff_ports_and_capture(capsys, monkeypatch, tmp_path):
                                                    ns.PortInfo("COM1", "Serial", False)])
     code, (ports,), _ = run_json(capsys, "sniff", "ports")
     assert code == 0 and ports[0] == {"port": "COM7", "description": "nRF Sniffer",
-                                      "likely_sniffer": True}
+                                      "likely_sniffer": True, "bootloader": False}
     monkeypatch.setattr(ns, "open_serial", lambda p, b: ts.FakeSerial(p, b, answer_baud=460_800))
     out = tmp_path / "c.pcap"
     code, (r,), _ = run_json(capsys, "sniff", "capture", "-t", "0.1", "-o", str(out))
@@ -268,3 +268,11 @@ def test_errors_reported_once_unless_verbose(capsys):
     assert code == 1 and err.count("does not support read") == 1 and "ERROR" not in err
     code, _, err = run(capsys, "-v", "read", SENSOR, "2a00")
     assert code == 0 and "INFO" in err and "Connecting to" in err
+
+
+def test_sniff_capture_points_at_a_dongle_in_its_bootloader(capsys, monkeypatch):
+    from bluebench.sniffer import nrf_sniffer as ns
+    monkeypatch.setattr(ns, "list_ports", lambda: [
+        ns.PortInfo("COM3", "nRF52 SDFU USB (COM3)", False, bootloader=True)])
+    code, _, err = run(capsys, "sniff", "capture", "-t", "0.1")
+    assert code == 2 and "COM3 is a Nordic DFU bootloader" in err

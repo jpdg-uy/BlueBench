@@ -391,8 +391,8 @@ async def cmd_dfu(args, out: Out) -> int:
 
 async def cmd_sniff_ports(args, out: Out) -> int:
     ports = api.sniffer_ports()
-    out.emit([{"port": p.device, "description": p.description, "likely_sniffer": p.likely}
-              for p in ports],
+    out.emit([{"port": p.device, "description": p.description, "likely_sniffer": p.likely,
+               "bootloader": p.bootloader} for p in ports],
              lambda: "\n".join(p.label for p in ports) or "No serial ports found.")
     return EXIT_OK
 
@@ -400,10 +400,14 @@ async def cmd_sniff_ports(args, out: Out) -> int:
 async def cmd_sniff_capture(args, out: Out) -> int:
     port = args.port
     if port is None:
-        likely = [p for p in api.sniffer_ports() if p.likely]
+        ports = api.sniffer_ports()
+        likely = [p for p in ports if p.likely]
         if len(likely) != 1:
+            boot = [p.device for p in ports if p.bootloader]
+            hint = (f"; {', '.join(boot)} is a Nordic DFU bootloader: flash the nRF Sniffer"
+                    " firmware on it first") if boot and not likely else ""
             raise UsageError("give --port (found " + (", ".join(p.device for p in likely)
-                                                     or "no likely nRF Sniffer") + ")")
+                                                     or "no likely nRF Sniffer") + ")" + hint)
         port = likely[0].device
 
     def show(p) -> None:
