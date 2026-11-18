@@ -23,7 +23,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
-          $v = python -c "import re; print(re.search(r'__version__ = \"(.+)\"', open('src/bluebench/__init__.py').read()).group(1))"
+          $v = (Select-String -Path src/bluebench/__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
           if ("v$v" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match __version__ $v" }
 
       - name: Build exe (single file + folder zip)
