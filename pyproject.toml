@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bluebench"
-version = "0.3.0"
+version = "0.3.1"
 description = "BLE workbench for Windows: GUI, command line and Python API (scanner, GATT, UART, macros, DFU, sniffer)"
 requires-python = ">=3.10"
 license = "MIT"

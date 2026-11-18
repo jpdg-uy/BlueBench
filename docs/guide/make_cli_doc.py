@@ -387,8 +387,9 @@ DFU complete: 148.0 KB in 41.3 s
         "Captura paquetes del aire con una placa nRF con el firmware nRF Sniffer for Bluetooth "
         "LE, como la pestaña Traffic de la app. sniff ports lista los puertos serie y marca con ★ "
         "los que parecen sniffers.",
-        [[code("--port"), "Puerto del sniffer. Si se omite y hay uno solo que parece sniffer, usa "
-                          "ese."],
+        [[code("--port"), "Puerto del sniffer. Si se omite usa el único que parece sniffer; si hay "
+                          "varios (el nRF52840 Dongle con el firmware 5 muestra dos), prueba "
+                          "cuál responde."],
          [code("-t S"), "Duración de la captura (obligatorio)."],
          [code("-o ARCHIVO"), "Guarda un .pcap que se abre directamente en Wireshark."],
          [code("--follow DIR"), "Sigue a ese dispositivo dentro de su conexión. Esperá a que "

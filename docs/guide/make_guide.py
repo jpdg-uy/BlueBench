@@ -333,6 +333,9 @@ def traffic():
                "dispositivos que no son esta PC (por ejemplo, un celular con su periférico)."))
     s.append(B(f"Elegí el puerto en {ui('On-air')} (★ marca los dispositivos Nordic o SEGGER) y "
                f"apretá {ui('Start sniffer')}. La app detecta la velocidad del puerto sola."))
+    s.append(B("Con el firmware 5 el nRF52840 Dongle aparece como <b>dos</b> puertos con ★ y solo "
+               "uno es el sniffer: si el elegido no responde, la app lo dice y selecciona el otro. "
+               "Un dongle que figura como «DFU bootloader» todavía no tiene el firmware del sniffer."))
     s.append(B("Al principio se ven los advertisements de todos los dispositivos cercanos."))
     s.append(B(f"Para capturar una conexión, elegí el dispositivo en {ui('Follow')} y <b>después</b> "
                "conectate (desde esta app o desde cualquier central). El sniffer sigue los saltos de "
@@ -405,8 +408,8 @@ def log_and_trouble():
         ["No se puede pedir MTU o PHY", "Windows no lo permite (sección 5); la app muestra los "
                                         "valores que negoció Windows."],
         ["El sniffer no responde",
-         "Verificá el firmware nRF Sniffer, cerrá Wireshark y desenchufá y volvé a enchufar el "
-         "dongle. En un DK, usá el puerto «JLink CDC UART»."],
+         "Verificá el firmware nRF Sniffer, probá el otro puerto con ★, cerrá Wireshark y "
+         "desenchufá y volvé a enchufar el dongle. En un DK, usá el puerto «JLink CDC UART»."],
         ["El sniffer no ve la conexión",
          f"Elegí el dispositivo en {ui('Follow')} <b>antes</b> de conectarte. Acercá el sniffer "
          "a los dos equipos."],
