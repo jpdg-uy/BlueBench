@@ -1,10 +1,10 @@
 # Builds and checks a release on this PC, then tags it. Publishing happens when the tag is
 # pushed: .github/workflows/release.yml builds on a Windows runner and publishes the GitHub
-# release, and bitbucket-pipelines.yml copies that release to the Bitbucket mirror.
+# release.
 # Usage:  powershell -ExecutionPolicy Bypass -File release.ps1 [-NoPublish] [-SkipBuild]
 #   Runs the tests, builds dist\ (build_exe.ps1 -Layout Both), smoke-tests the frozen app
 #   and bluebench-cli.exe, then creates the tag v<__version__> on HEAD. Push it with
-#   "git push origin v<__version__>" from the shell that has the keys of every push URL.
+#   "git push origin v<__version__>".
 param(
     [switch]$NoPublish,   # build and check only, no tag
     [switch]$SkipBuild    # reuse what is already in dist\
@@ -29,7 +29,7 @@ $py = "build\venv\Scripts\python.exe"
 if (-not $SkipBuild) {
     ./build_exe.ps1 -Layout Both
     & $py -m pip install --quiet "pytest>=8" "pytest-asyncio>=0.23"
-    & $py -m pytest -q -p no:cacheprovider tests
+    & $py -m pytest -q -p no:cacheprovider --basetemp "$env:TEMP\bluebench-pytest" tests
     if ($LASTEXITCODE) { throw "Tests failed" }
 }
 

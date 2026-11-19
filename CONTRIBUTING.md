@@ -49,19 +49,3 @@ publishes the release: the Release workflow builds everything again on a Windows
 publishes the GitHub release with the zip, the exe, the wheel and the three PDF manuals.
 
     git push origin vX.Y.Z
-
-## Bitbucket mirror
-
-The project can also live in a Bitbucket Cloud repository, for teams that work there. The
-mirror has exactly the same commits: give `origin` a second push URL and every `git push`
-goes to both places.
-
-    git remote set-url --add --push origin https://github.com/jpdg-uy/BlueBench.git
-    git remote set-url --add --push origin git@bitbucket.org:WORKSPACE/REPO.git
-
-On Bitbucket, `bitbucket-pipelines.yml` runs the Linux tests on `main` and on pull requests.
-When a tag `vX.Y.Z` arrives it waits for the GitHub release of that tag, checks the sha256
-of every file and copies them to the repository's Downloads with the version in each name
-(`packaging/bitbucket_release.py --from-github`). That step needs a repository access token
-with the `repository:write` scope, saved as the secured repository variable
-`BITBUCKET_ACCESS_TOKEN` (Repository settings → Access tokens, then Repository variables).
