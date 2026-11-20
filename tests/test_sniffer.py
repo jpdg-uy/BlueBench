@@ -404,3 +404,14 @@ def test_find_sniffer_pings_the_likely_ports():
     assert {s.port for s in opened} == {"COM4", "COM5"}          # COM1 is never touched
     assert all(s.closed for s in opened)
     assert ns.find_sniffer(ports[:3], factory) is None
+
+
+async def test_api_find_sniffer_reports_errors(monkeypatch):
+    from bluebench import api
+    from bluebench.sniffer import nrf_sniffer
+
+    def boom(*_a, **_k):
+        raise nrf_sniffer.SnifferError("port busy")
+    monkeypatch.setattr(nrf_sniffer, "find_sniffer", boom)
+    with pytest.raises(nrf_sniffer.SnifferError, match="busy"):
+        await api.find_sniffer()

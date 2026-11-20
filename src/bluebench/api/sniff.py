@@ -51,7 +51,8 @@ async def find_sniffer(serial_factory=None) -> str | None:
             r = nrf_sniffer.find_sniffer(None, serial_factory or nrf_sniffer.open_serial)
             loop.call_soon_threadsafe(lambda: done.done() or done.set_result(r))
         except BaseException as exc:      # noqa: BLE001 - handed to the awaiting task
-            loop.call_soon_threadsafe(lambda: done.done() or done.set_exception(exc))
+            # Bound now: Python unbinds ``exc`` when the except block ends.
+            loop.call_soon_threadsafe(lambda e=exc: done.done() or done.set_exception(e))
     threading.Thread(target=work, name="find-sniffer", daemon=True).start()
     return await done
 
