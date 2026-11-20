@@ -8,6 +8,9 @@ here instead of changing the core:
   optionally, what identifies the device across address changes) or None.
 * ``register_names(table)``: extra UUID/company names, same structure as
   ``data/assigned_numbers.json`` (the user's own file still wins).
+* ``register_filter_field(FilterField(...))``: a device filter on decoded data,
+  offered as ``--NAME`` by the CLI, ``NAME=`` by the API and ``NAME:VALUE`` in the
+  scanner's filter box.
 
 Extensions are listed by module name in ``bluebench.extensions.MODULES`` and
 imported on first use by ``load_extensions()``.
@@ -40,9 +43,21 @@ class Decoded:
     similarity: tuple | None = None
 
 
+@dataclass(frozen=True)
+class FilterField:
+    """A filter criterion that needs decoded advertising data."""
+
+    name: str                                         # "model": --model, model=, model:
+    help: str                                         # one line, for the CLI
+    parse: Callable[[str], Any]                       # text -> value; ValueError if bad
+    match: Callable[["ParsedAdvertisement", Any], bool]
+    metavar: str = "VALUE"
+
+
 AdvDecoder = Callable[["ParsedAdvertisement"], "Decoded | None"]
 
 _adv_decoders: list[AdvDecoder] = []
+_filter_fields: dict[str, FilterField] = {}
 _names: list[dict[str, dict[str, str]]] = []
 _name_listeners: list[Callable[[], None]] = []
 _loaded = False
@@ -52,6 +67,16 @@ def register_adv_decoder(fn: AdvDecoder) -> AdvDecoder:
     if fn not in _adv_decoders:
         _adv_decoders.append(fn)
     return fn
+
+
+def register_filter_field(ff: FilterField) -> FilterField:
+    _filter_fields[ff.name] = ff
+    return ff
+
+
+def filter_fields() -> dict[str, FilterField]:
+    load_extensions()
+    return dict(_filter_fields)
 
 
 def register_names(table: dict[str, dict[str, str]]) -> None:
@@ -103,9 +128,10 @@ def load_extensions() -> None:
 def _reset_for_tests() -> Any:
     """Forget registered decoders and names (tests only). Returns a restore function."""
     global _loaded
-    saved = (list(_adv_decoders), list(_names), _loaded)
+    saved = (list(_adv_decoders), list(_names), _loaded, dict(_filter_fields))
     _adv_decoders.clear()
     _names.clear()
+    _filter_fields.clear()
     _loaded = True
 
     def restore() -> None:
@@ -113,4 +139,6 @@ def _reset_for_tests() -> Any:
         _adv_decoders[:] = saved[0]
         _names[:] = saved[1]
         _loaded = saved[2]
+        _filter_fields.clear()
+        _filter_fields.update(saved[3])
     return restore

@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QHBoxLayout, QHeade
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ..ble import pairing
-from ..ble.adv_filter import byte_pattern, manufacturer_matches
+from ..ble import registry
+from ..ble.adv_filter import byte_pattern, field_terms, manufacturer_matches
 from ..ble.adv_parser import AdvField
 from ..ble.scanner import KIND_TEXT, PRIVATE_KINDS, DeviceEntry, Scanner
 from .qt_compat import filter_change
@@ -218,6 +219,7 @@ class DeviceFilterProxy(QSortFilterProxyModel):
         super().__init__(parent)
         self.text = ""
         self.hex = None  # the text as a byte pattern, for manufacturer data
+        self.terms: tuple[tuple[str, str], ...] | None = None  # "model:0B" filters
         self.min_rssi = -100
         self.named_only = False
         self.natural = True  # discovery order until a header is clicked
@@ -265,6 +267,7 @@ class DeviceFilterProxy(QSortFilterProxyModel):
             if text is not None:
                 self.text = text.strip().lower()
                 self.hex = byte_pattern(text)
+                self.terms = field_terms(text)
             if min_rssi is not None:
                 self.min_rssi = min_rssi
                 self._rssi_shown.clear()
@@ -278,6 +281,9 @@ class DeviceFilterProxy(QSortFilterProxyModel):
             return False
         if self.named_only and not e.name:
             return False
+        if self.terms:
+            fields = registry.filter_fields()
+            return all(fields[n].match(e.adv, fields[n].parse(v)) for n, v in self.terms)
         if self.text:
             if self.hex and manufacturer_matches(e.adv.manufacturer_data, self.hex):
                 return True
@@ -334,6 +340,12 @@ class ScannerView(QWidget):
             "or with the company ID written as usual (0x0059 → 0059…).\n"
             "Wildcards: ? is any hex digit (?? any byte), * any number of bytes.\n"
             "0059 ?? 0B skips the byte after the company ID; *0B finds 0B anywhere.")
+        fields = registry.filter_fields()
+        if fields:
+            self.filter_edit.setToolTip(
+                self.filter_edit.toolTip() + "\nDecoded data: " + ", ".join(
+                    f"{n}:{ff.metavar}" for n, ff in fields.items())
+                + " (several separated by spaces).")
         self.filter_edit.textChanged.connect(lambda t: self.proxy.set_filter(text=t))
         self.rssi_spin = QSpinBox(minimum=-100, maximum=0, value=-100, suffix=" dBm")
         self.rssi_spin.setToolTip("Hide devices weaker than this RSSI")

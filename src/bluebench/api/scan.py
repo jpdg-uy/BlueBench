@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..ble import uuids
-from ..ble.adv_filter import DeviceFilter
+from ..ble.adv_filter import DeviceFilter, split_criteria
 from ..ble.adv_parser import manufacturer_raw
 from ..ble.scanner import DeviceEntry, Scanner
 from .errors import BluetoothUnavailable, DeviceNotFound
@@ -61,13 +61,13 @@ def make_filter(flt: DeviceFilter | None = None, **criteria) -> DeviceFilter:
         if criteria:
             raise TypeError("pass either a DeviceFilter or keyword criteria, not both")
         return flt
-    return DeviceFilter(**criteria)
+    return DeviceFilter(**split_criteria(criteria))
 
 
 def _matches(flt: DeviceFilter, e: DeviceEntry) -> bool:
     return flt.matches(address=e.address, name=e.name, rssi=e.rssi,
                        manufacturer_data=e.adv.manufacturer_data,
-                       service_uuids=e.adv.service_uuids)
+                       service_uuids=e.adv.service_uuids, adv=e.adv)
 
 
 class _Scan:
@@ -151,4 +151,5 @@ def describe(f: DeviceFilter) -> str:
     parts = [f"{k}={v!r}" for k, v in (("name", f.name), ("address", f.address),
                                          ("mfr", f.mfr), ("service", f.service),
                                          ("min_rssi", f.min_rssi)) if v is not None]
+    parts += [f"{k}={v!r}" for k, v in f.fields]
     return ", ".join(parts) or "any criteria"

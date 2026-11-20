@@ -56,3 +56,25 @@ def test_extensions_are_imported_once(monkeypatch):
     registry.load_extensions()
     registry.load_extensions()
     assert calls == ["demo_ext", "missing_ext_xyz"]
+
+
+def test_filter_fields_reach_filter_api_and_box(clean, qapp):
+    from bluebench.ble.adv_filter import DeviceFilter, field_terms, split_criteria
+    from bluebench.ble.registry import FilterField
+
+    def first_byte(adv, value):
+        p = adv.manufacturer_data.get(0x0059)
+        return bool(p) and p[0] == value
+    registry.register_filter_field(FilterField("kind", "first payload byte", int, first_byte, "N"))
+    adv = parse_advertisement(None, {0x0059: b"\x07"}, {}, [], None)
+    crit = split_criteria({"kind": 7, "name": None})
+    assert crit == {"name": None, "fields": (("kind", "7"),)}
+    f = DeviceFilter(fields=crit["fields"])
+    kw = dict(address="x", name=None, rssi=-1, manufacturer_data=adv.manufacturer_data,
+              service_uuids=[])
+    assert f.matches(**kw, adv=adv) and not f.matches(**kw) and not f.is_empty
+    assert not DeviceFilter(fields=(("kind", "8"),)).matches(**kw, adv=adv)
+    with pytest.raises(ValueError):
+        DeviceFilter(fields=(("kind", "x"),))
+    assert field_terms("kind:7") == (("kind", "7"),) and field_terms("kind:x") is None
+    assert field_terms("other:7") is None

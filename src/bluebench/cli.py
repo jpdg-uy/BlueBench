@@ -22,7 +22,7 @@ from collections.abc import Callable
 from typing import Any
 
 from . import __version__, api
-from .ble import uuids
+from .ble import registry, uuids
 from .ble.formats import ValueFormat, decode, encode
 
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_FOUND, EXIT_NO_BLUETOOTH, EXIT_INTERRUPTED = \
@@ -100,8 +100,9 @@ def _char_arg(text: str):
 
 # -- device selection ----------------------------------------------------------
 def _criteria(args) -> dict:
-    c = {k: getattr(args, k) for k in ("name", "mfr", "service", "min_rssi")
-         if getattr(args, k, None) is not None}
+    keys = ["name", "mfr", "service", "min_rssi", *registry.filter_fields()]
+    c = {k: getattr(args, k.replace("-", "_")) for k in keys
+         if getattr(args, k.replace("-", "_"), None) is not None}
     return c
 
 
@@ -461,6 +462,8 @@ def _filter_args(p: argparse.ArgumentParser) -> None:
                    "digit and * any number of bytes, e.g. 0059??0B")
     g.add_argument("--service", metavar="UUID", help="advertises this service")
     g.add_argument("--min-rssi", type=int, metavar="DBM", help="ignore weaker devices")
+    for ff in registry.filter_fields().values():  # from protocol extensions
+        g.add_argument(f"--{ff.name}", metavar=ff.metavar, help=ff.help)
 
 
 def build_parser() -> argparse.ArgumentParser:

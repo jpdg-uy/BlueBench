@@ -5,8 +5,8 @@ import functools
 import re
 from dataclasses import dataclass
 
-from . import uuids
-from .adv_parser import manufacturer_raw
+from . import registry, uuids
+from .adv_parser import ParsedAdvertisement, manufacturer_raw
 
 _HEX_SEPARATORS = re.compile(r"[\s:\-]")
 _PATTERN_CHARS = frozenset("0123456789abcdef?")
@@ -68,6 +68,8 @@ class DeviceFilter:
              wildcards (see ``byte_pattern`` and ``manufacturer_matches``)
     service  advertised service UUID (short "180d" or full)
     min_rssi weakest signal accepted, in dBm
+    fields   (name, value) pairs for filters registered by protocol extensions
+             (registry.register_filter_field), e.g. (("model", "0x000B"),)
     """
 
     name: str | None = None
@@ -76,19 +78,26 @@ class DeviceFilter:
     service: str | None = None
     min_rssi: int | None = None
     exact_name: bool = False
+    fields: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
+        known = registry.filter_fields()
+        for name, value in self.fields:
+            if name not in known:
+                raise ValueError(f"Unknown filter {name!r}")
+            known[name].parse(str(value))  # raises ValueError with the reason
         if self.mfr is not None and byte_pattern(self.mfr) is None:
             raise ValueError("Manufacturer filter must be hex bytes, e.g. 5900 or 0059??0B"
                              f" (got '{self.mfr}')")
 
     @property
     def is_empty(self) -> bool:
-        return all(v is None for v in (self.name, self.address, self.mfr, self.service,
-                                       self.min_rssi))
+        return not self.fields and all(v is None for v in (self.name, self.address, self.mfr,
+                                                           self.service, self.min_rssi))
 
     def matches(self, *, address: str, name: str | None, rssi: int,
-                manufacturer_data: dict[int, bytes], service_uuids: list[str]) -> bool:
+                manufacturer_data: dict[int, bytes], service_uuids: list[str],
+                adv: ParsedAdvertisement | None = None) -> bool:
         if self.address is not None and address.lower() != self.address.lower():
             return False
         if self.name is not None:
@@ -103,4 +112,43 @@ class DeviceFilter:
             want = uuids.normalize(self.service)
             if want not in (uuids.normalize(u) for u in service_uuids):
                 return False
+        if self.fields:
+            known = registry.filter_fields()
+            if adv is None:
+                return False
+            for fname, value in self.fields:
+                ff = known[fname]
+                if not ff.match(adv, ff.parse(str(value))):
+                    return False
         return True
+
+
+def split_criteria(criteria: dict) -> dict:
+    """Keyword criteria with registered filter fields moved into ``fields``."""
+    known = registry.filter_fields()
+    out = {k: v for k, v in criteria.items() if k not in known}
+    extra = tuple((k, str(v)) for k, v in criteria.items() if k in known and v is not None)
+    if extra:
+        out["fields"] = tuple(out.get("fields", ())) + extra
+    return out
+
+
+_FIELD_TERM = re.compile(r"^([A-Za-z][\w-]*)\s*[:=]\s*(\S+)$")
+
+
+def field_terms(text: str) -> tuple[tuple[str, str], ...] | None:
+    """"model:0B sn:1234" -> (("model", "0B"), ("sn", "1234")) when every term is a
+    registered filter with a valid value, else None (plain text search)."""
+    known = registry.filter_fields()
+    terms = []
+    for word in text.split():
+        m = _FIELD_TERM.match(word)
+        if not m or m.group(1).lower() not in known:
+            return None
+        name, value = m.group(1).lower(), m.group(2)
+        try:
+            known[name].parse(value)
+        except ValueError:
+            return None
+        terms.append((name, value))
+    return tuple(terms) or None
