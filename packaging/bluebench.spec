@@ -17,7 +17,8 @@ ROOT = SPECPATH + "/.."
 
 # bleak picks its backend at runtime and the WinRT projections are imported
 # dynamically, so PyInstaller's static analysis cannot see them.
-hiddenimports = collect_submodules("bleak") + collect_submodules("winrt")
+# bluebench itself too: protocol extensions are imported by name (bluebench.extensions).
+hiddenimports = collect_submodules("bleak") + collect_submodules("winrt") + collect_submodules("bluebench")
 
 EXCLUDES = ["tkinter", "pytest", "PySide6.QtWebEngineCore", "PySide6.QtQml", "PySide6.QtQuick"]
 

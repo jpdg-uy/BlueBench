@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QHBoxLayout, QHeade
 from ..ble import pairing
 from ..ble.adv_filter import byte_pattern, manufacturer_matches
 from ..ble.adv_parser import AdvField
-from ..ble.scanner import DeviceEntry, Scanner
+from ..ble.scanner import KIND_TEXT, PRIVATE_KINDS, DeviceEntry, Scanner
 from .qt_compat import filter_change
 
 REFRESH_MS = 250
@@ -36,7 +36,8 @@ BOND_TIP = ("Bonded (paired) with this PC. Devices that use a changing private a
 
 
 class DeviceTableModel(QAbstractTableModel):
-    """Rows are device addresses in discovery order; data is read from the scanner."""
+    """Rows are device keys (first address seen) in discovery order; data is read
+    from the scanner. A device that changes its private address keeps its row."""
 
     def __init__(self, scanner: Scanner, parent=None) -> None:
         super().__init__(parent)
@@ -45,7 +46,7 @@ class DeviceTableModel(QAbstractTableModel):
         self._row_of: dict[str, int] = {}
         self._pending_new: list[str] = []
         self._pending_set: set[str] = set()
-        self.pinned: set[str] = set()      # addresses kept at the top of the list
+        self.pinned: set[str] = set()      # keys kept at the top of the list
         self.bonded: set[str] = set()      # addresses Windows has a bond for
         # RSSI / interval used for sorting, refreshed every RESORT_MS (not per packet).
         self._sort_keys: dict[str, tuple[int, float]] = {}
@@ -84,9 +85,9 @@ class DeviceTableModel(QAbstractTableModel):
         return e.smoothed_rssi(now=now), e.interval_ms() or 1e9
 
     def sort_keys(self, e: DeviceEntry) -> tuple[int, float]:
-        keys = self._sort_keys.get(e.address)
+        keys = self._sort_keys.get(e.key)
         if keys is None:  # new since the last snapshot
-            keys = self._sort_keys[e.address] = self._keys_of(e)
+            keys = self._sort_keys[e.key] = self._keys_of(e)
         return keys
 
     def reset(self) -> None:
@@ -101,8 +102,10 @@ class DeviceTableModel(QAbstractTableModel):
     def entry(self, row: int) -> DeviceEntry:
         return self._scanner.devices[self._rows[row]]
 
-    def is_bonded(self, address: str) -> bool:
-        return address.upper() in self.bonded
+    def is_bonded(self, e: DeviceEntry | str) -> bool:
+        if isinstance(e, str):
+            return e.upper() in self.bonded
+        return any(a.upper() in self.bonded for a in e.addresses)
 
     def is_pinned_row(self, row: int) -> bool:
         return self._rows[row] in self.pinned
@@ -124,14 +127,14 @@ class DeviceTableModel(QAbstractTableModel):
             return None
         e = self.entry(index.row())
         col = index.column()
-        pinned = e.address in self.pinned
+        pinned = e.key in self.pinned
         if role == Qt.ItemDataRole.DisplayRole:
             if col == COL_NAME:
                 return PIN + e.display_name if pinned else e.display_name
             if col == COL_ADDRESS:
-                return e.address
+                return address_text(e)
             if col == COL_BOND:
-                return "🔒" if self.is_bonded(e.address) else ""
+                return "🔒" if self.is_bonded(e) else ""
             if col == COL_RSSI:
                 return f"{e.rssi} dBm"
             if col == COL_INTERVAL:
@@ -147,7 +150,7 @@ class DeviceTableModel(QAbstractTableModel):
             if col == COL_NAME:
                 return e.display_name.lower()
             if col == COL_BOND:
-                return 0 if self.is_bonded(e.address) else 1
+                return 0 if self.is_bonded(e) else 1
             return (self.data(index) or "").lower()
         if role == Qt.ItemDataRole.FontRole and pinned and col == COL_NAME:
             f = QFont()
@@ -155,17 +158,41 @@ class DeviceTableModel(QAbstractTableModel):
             return f
         if role == Qt.ItemDataRole.TextAlignmentRole and col == COL_BOND:
             return Qt.AlignmentFlag.AlignCenter
-        if role == Qt.ItemDataRole.ToolTipRole and col == COL_BOND and self.is_bonded(e.address):
+        if role == Qt.ItemDataRole.ToolTipRole and col == COL_BOND and self.is_bonded(e):
             return BOND_TIP
+        if role == Qt.ItemDataRole.ToolTipRole and col == COL_ADDRESS:
+            return address_tip(e)
         if role == Qt.ItemDataRole.ToolTipRole and col == COL_RSSI:
             return f"Average over the last few seconds: {e.smoothed_rssi()} dBm"
         if role == Qt.ItemDataRole.ForegroundRole and _is_stale(e):
             return QBrush(QColor(140, 140, 140))
         if role == Qt.ItemDataRole.UserRole:
-            return e.address
+            return e.key
         if role == RSSI_ROLE:
             return e.rssi
         return None
+
+
+def address_text(e: DeviceEntry) -> str:
+    """The current address; a private one is marked, with how many it has used."""
+    text = e.address
+    if e.address_kind in PRIVATE_KINDS:
+        text += "  RPA" if e.address_kind == "rpa" else "  NRPA"
+    if len(e.addresses) > 1:
+        text += f"  ↻{len(e.addresses)}"
+    return text
+
+
+def address_tip(e: DeviceEntry) -> str:
+    lines = [f"{e.address}: {KIND_TEXT.get(e.address_kind or '', 'address type not reported')}"]
+    if len(e.addresses) > 1:
+        span = e.last_seen - min(e.first_heard.values())
+        how = ("same identity in the advertising data" if e.joined == "identity"
+               else "a new private address appeared as the previous one went quiet "
+                    "(same name, data and signal)")
+        lines.append(f"{len(e.addresses)} addresses in {span:.0f} s, joined because {how}:")
+        lines += [f"  {a}" for a in reversed(list(e.addresses))][:10]
+    return "\n".join(lines)
 
 
 def _is_stale(e: DeviceEntry) -> bool:
@@ -219,11 +246,11 @@ class DeviceFilterProxy(QSortFilterProxyModel):
         if self.min_rssi <= -100:
             return True
         rssi = e.smoothed_rssi()
-        margin = RSSI_HYSTERESIS_DB if e.address in self._rssi_shown else 0
+        margin = RSSI_HYSTERESIS_DB if e.key in self._rssi_shown else 0
         if rssi >= self.min_rssi - margin:
-            self._rssi_shown.add(e.address)
+            self._rssi_shown.add(e.key)
             return True
-        self._rssi_shown.discard(e.address)
+        self._rssi_shown.discard(e.key)
         return False
 
     def forget(self) -> None:
@@ -252,7 +279,7 @@ class DeviceFilterProxy(QSortFilterProxyModel):
         if self.text:
             if self.hex and manufacturer_matches(e.adv.manufacturer_data, self.hex):
                 return True
-            haystack = f"{e.display_name} {e.address} {_info_text(e)}".lower()
+            haystack = f"{e.display_name} {' '.join(e.addresses)} {_info_text(e)}".lower()
             return self.text in haystack
         return True
 
@@ -311,6 +338,12 @@ class ScannerView(QWidget):
         self.rssi_spin.valueChanged.connect(lambda v: self.proxy.set_filter(min_rssi=v))
         named = QCheckBox("Named only")
         named.toggled.connect(lambda on: self.proxy.set_filter(named_only=on))
+        self.join_check = QCheckBox("Join RPAs", checked=scanner.follow_rotation)
+        self.join_check.setToolTip(
+            "Keep one row for a device that changes its private address (RPA):\n"
+            "a new private address that appears as one with the same name, data and\n"
+            "signal goes quiet is taken as the same device. Applies to new addresses.")
+        self.join_check.toggled.connect(lambda on: setattr(scanner, "follow_rotation", on))
         self.count_label = QLabel("0 devices")
 
         bar = QHBoxLayout()
@@ -320,6 +353,7 @@ class ScannerView(QWidget):
         bar.addWidget(QLabel("Min RSSI"))
         bar.addWidget(self.rssi_spin)
         bar.addWidget(named)
+        bar.addWidget(self.join_check)
         bar.addWidget(self.count_label)
 
         # table
@@ -438,7 +472,8 @@ class ScannerView(QWidget):
         else:
             menu.addAction("Pin to top", lambda: self.set_pinned(addr, True))
         menu.addSeparator()
-        menu.addAction("Copy address", lambda: QGuiApplication.clipboard().setText(addr))
+        current = self.scanner.devices[addr].address if addr in self.scanner.devices else addr
+        menu.addAction("Copy address", lambda: QGuiApplication.clipboard().setText(current))
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
     def selected_address(self) -> str | None:
@@ -469,7 +504,7 @@ class ScannerView(QWidget):
                 self.details.clear()
                 self._details_sig = None
             return
-        sig = (e.address, e.adv_count)
+        sig = (e.key, e.address, e.adv_count)
         if sig == self._details_sig:
             return
         self._details_sig = sig
@@ -477,6 +512,11 @@ class ScannerView(QWidget):
         iv = e.interval_ms()
         rows = [
             AdvField("Address", e.address),
+            AdvField("Address type", KIND_TEXT.get(e.address_kind or "", "not reported")),
+            *([AdvField("Addresses used", str(len(e.addresses)),
+                        [AdvField(a, "current" if a == e.address else "")
+                         for a in reversed(list(e.addresses))])]
+              if len(e.addresses) > 1 else []),
             AdvField("RSSI", f"{e.rssi} dBm"),
             AdvField("Packets", str(e.adv_count)),
             AdvField("Avg. interval", f"{iv:.0f} ms" if iv else "—"),

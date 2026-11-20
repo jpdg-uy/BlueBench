@@ -20,6 +20,10 @@ from . import link, pairing, uuids
 from .formats import to_hex
 
 CONNECT_TIMEOUT_S = 20.0
+# While connecting to a private address, how often to check whether the device has
+# moved to a new one, and how many moves to follow before giving up.
+FOLLOW_POLL_S = 0.25
+FOLLOW_MAX = 4
 CCCD_UUID = uuids.normalize("2902")
 
 NotifyListener = Callable[[int, bytes], None]
@@ -63,6 +67,11 @@ class DeviceSession(QObject):
         self.priority: str | None = None  # requested preset, see link.PRIORITIES
         self._priority_request = None
         self._stop_link_watch = lambda: None
+        # The device's newest advertisement (the scanner sets this): used to connect
+        # to the current address of a device that changes its private address.
+        self.latest_device: Callable[[], BLEDevice | None] | None = None
+        # Identity address of a bonded device that advertises with an RPA (from Windows).
+        self.identity_address: str | None = None
 
     # -- state -------------------------------------------------------------
     @property
@@ -111,15 +120,24 @@ class DeviceSession(QObject):
             return self.is_connected
         self._user_disconnect = False
         self._set_state("connecting")
+        device = self._newest_device()
         self._log("info", f"Connecting to {self.address}…")
-        # A fresh client per attempt: reusing one after a disconnect is
-        # unreliable on some backends (notably WinRT).
-        client = BleakClient(self.device, disconnected_callback=self._on_disconnected,
-                             timeout=CONNECT_TIMEOUT_S)
         try:
-            await client.connect()
+            client = await self._connect_following(device)
         except Exception as exc:
-            self._log("error", f"Connection failed: {_err(exc)}")
+            client = None
+            error = exc
+        if client is None and self.identity_address and self.identity_address != self.address:
+            # A bonded device: Windows can reach it by its identity address whatever
+            # private address it is using now.
+            self._log("info", f"Retrying with the identity address {self.identity_address}…")
+            try:
+                client = await self._connect_following(
+                    BLEDevice(self.identity_address, self.name, None), follow=False)
+            except Exception as exc:
+                error = exc
+        if client is None:
+            self._log("error", f"Connection failed: {_err(error)}")
             self._set_state("disconnected")
             return False
         self._client = client
@@ -147,6 +165,51 @@ class DeviceSession(QObject):
         self.services_discovered.emit()
         await self.refresh_bond()
         return True
+
+    def _newest_device(self) -> BLEDevice | str:
+        d = self.latest_device() if self.latest_device else None
+        if d is not None and d is not self.device:
+            if isinstance(self.device, BLEDevice) and d.address != self.device.address:
+                self._log("info", f"The device now uses the address {d.address}")
+            self.device, self.address = d, d.address
+        return self.device
+
+    async def _connect_following(self, device: BLEDevice | str,
+                                 follow: bool = True) -> BleakClient:
+        """Connect; if the device moves to a new private address meanwhile (it is
+        then no longer listening on the old one), start over on the new one."""
+        for _ in range(FOLLOW_MAX + 1):
+            # A fresh client per attempt: reusing one after a disconnect is
+            # unreliable on some backends (notably WinRT).
+            client = BleakClient(device, disconnected_callback=self._on_disconnected,
+                                 timeout=CONNECT_TIMEOUT_S)
+            attempt = asyncio.ensure_future(client.connect())
+            if not (follow and self.latest_device):
+                await attempt
+                return client
+            moved = asyncio.ensure_future(self._moved_from(_address(device)))
+            try:
+                await asyncio.wait({attempt, moved}, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                moved.cancel()
+            if attempt.done():
+                attempt.result()  # raises if the connection failed
+                return client
+            attempt.cancel()
+            try:
+                await attempt
+            except BaseException:
+                pass
+            device = self._newest_device()
+            self._log("info", f"Address changed while connecting; trying {self.address}…")
+        raise ConnectionError("the device kept changing its address")
+
+    async def _moved_from(self, address: str) -> None:
+        while True:
+            await asyncio.sleep(FOLLOW_POLL_S)
+            d = self.latest_device() if self.latest_device else None
+            if d is not None and d.address != address:
+                return
 
     async def disconnect(self) -> None:
         client = self._client
@@ -398,6 +461,10 @@ class DeviceSession(QObject):
         if ch is None:
             self._log("error", f"No characteristic with handle 0x{handle:04X}")
         return ch
+
+
+def _address(device: BLEDevice | str) -> str:
+    return device if isinstance(device, str) else device.address
 
 
 def is_cccd(desc: BleakGATTDescriptor) -> bool:

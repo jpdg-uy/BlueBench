@@ -13,6 +13,7 @@ from importlib import resources
 from typing import Literal
 
 from ..paths import DATA_DIR
+from . import registry
 
 Kind = Literal["services", "characteristics", "descriptors"]
 
@@ -57,6 +58,8 @@ def _tables() -> dict[str, dict[str, str]]:
     )
     tables: dict[str, dict[str, str]] = {}
     _merge(tables, raw)
+    for extra in registry.extra_names():  # protocol extensions
+        _merge(tables, extra)
     if USER_FILE.exists():
         try:
             _merge(tables, json.loads(USER_FILE.read_text("utf-8")))
@@ -91,3 +94,6 @@ def company_name(company_id: int) -> str:
 def reload() -> None:
     """Re-read the tables, e.g. after the user edited their custom names file."""
     _tables.cache_clear()
+
+
+registry.on_names_changed(reload)

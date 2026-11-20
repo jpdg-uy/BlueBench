@@ -243,3 +243,23 @@ def test_min_rssi_filter_ignores_a_single_weak_packet(view):
     set_rssi(view, C, -65, -65, -65, -95)              # one weak packet: average -72...
     view.model.flush()
     assert C in order(view)                            # ...within the margin, still shown
+
+
+def test_row_follows_a_rotating_private_address(view):
+    from types import SimpleNamespace
+    from bluebench.ui.scanner_view import COL_ADDRESS
+    rnd = SimpleNamespace(adv=SimpleNamespace(bluetooth_address_type=SimpleNamespace(name="RANDOM")),
+                          scan=None)
+    for addr in ("4A:00:00:00:00:01", "5B:00:00:00:00:02"):
+        view.scanner._on_detection(BLEDevice(addr, "Rotor", rnd),
+                                   AdvertisementData("Rotor", {}, {}, [], None, -60, ()))
+        view.model.flush()
+        if addr.startswith("4A"):
+            view.set_pinned(addr, True)
+    assert view.model.rowCount() == len(DEVICES) + 1
+    top = view.proxy.index(0, COL_ADDRESS)
+    assert top.data(Qt.ItemDataRole.UserRole) == "4A:00:00:00:00:01"   # row key stays
+    assert top.data() == "5B:00:00:00:00:02  RPA  ↻2"                    # shows the new one
+    assert "2 addresses" in top.data(Qt.ItemDataRole.ToolTipRole)
+    view.proxy.set_filter(text="4a:00")                                  # old address still found
+    assert view.proxy.rowCount() == 1

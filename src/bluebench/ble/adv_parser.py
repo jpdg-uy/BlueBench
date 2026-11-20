@@ -10,7 +10,7 @@ import struct
 import uuid as _uuid
 from dataclasses import dataclass, field
 
-from . import uuids
+from . import registry, uuids
 
 APPLE = 0x004C
 EDDYSTONE_UUID = uuids.normalize("feaa")
@@ -39,6 +39,9 @@ class ParsedAdvertisement:
     # company ID -> payload, as bleak reports it (company ID stripped from the bytes)
     manufacturer_data: dict[int, bytes] = field(default_factory=dict)
     service_data: dict[str, bytes] = field(default_factory=dict)  # normalized UUID -> payload
+    # From registered decoders (see registry.Decoded): stable across address changes.
+    identity: tuple | None = None
+    similarity: tuple | None = None
 
 
 def hexstr(data: bytes) -> str:
@@ -101,9 +104,15 @@ def parse_advertisement(
                 f.children.extend(children)
         fields.append(f)
 
-    return ParsedAdvertisement(local_name, tx_power, norm_uuids, fields, beacon,
-                               {int(k): bytes(v) for k, v in manufacturer_data.items()},
-                               {uuids.normalize(k): bytes(v) for k, v in service_data.items()})
+    adv = ParsedAdvertisement(local_name, tx_power, norm_uuids, fields, beacon,
+                              {int(k): bytes(v) for k, v in manufacturer_data.items()},
+                              {uuids.normalize(k): bytes(v) for k, v in service_data.items()})
+    for d in registry.decode(adv):
+        adv.fields.extend(d.fields)
+        adv.beacon = adv.beacon or d.label
+        adv.identity = adv.identity or d.identity
+        adv.similarity = adv.similarity or d.similarity
+    return adv
 
 
 def decode_ibeacon(payload: bytes) -> list[AdvField] | None:

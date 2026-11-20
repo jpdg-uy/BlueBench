@@ -80,3 +80,45 @@ async def test_reconnect_uses_fresh_client(session):
     assert any(e[0] == "log" and e[2] == "Disconnected" for e in session.events)
     await session.connect()
     assert len(FakeClient.instances) == 2 and session.is_connected
+
+
+async def test_connect_uses_the_newest_address(session):
+    from bleak.backends.device import BLEDevice
+    newest = BLEDevice("5B:00:00:00:00:02", "Fake", None)
+    session.latest_device = lambda: newest
+    assert await session.connect()
+    assert FakeClient.instances[-1].device is newest and session.address == newest.address
+
+
+async def test_connect_follows_an_address_change_mid_connect(session, monkeypatch):
+    import asyncio
+    from bleak.backends.device import BLEDevice
+    monkeypatch.setattr(connection, "FOLLOW_POLL_S", 0.01)
+    first, second = BLEDevice("4A:00:00:00:00:01", "F", None), BLEDevice("5B:00:00:00:00:02", "F", None)
+    current = [first]
+    session.latest_device = lambda: current[0]
+
+    class Slow(FakeClient):
+        async def connect(self):
+            if self.device is first:       # never answers on the old address
+                current[0] = second          # ... because the device moved
+                await asyncio.sleep(10)
+            return await super().connect()
+    monkeypatch.setattr(connection, "BleakClient", Slow)
+    assert await asyncio.wait_for(session.connect(), 2)
+    assert session.address == second.address and FakeClient.instances[-1].device is second
+    assert any("Address changed while connecting" in e[2] for e in session.events if e[0] == "log")
+
+
+async def test_connect_falls_back_to_the_identity_address(session, monkeypatch):
+    class OnlyIdentity(FakeClient):
+        async def connect(self):
+            if self.device.address != "C4:00:00:00:00:99":
+                raise OSError("Device not found")
+            return await super().connect()
+    monkeypatch.setattr(connection, "BleakClient", OnlyIdentity)
+    from bleak.backends.device import BLEDevice
+    session.device = BLEDevice("4A:00:00:00:00:01", "Fake", None)
+    session.identity_address = "C4:00:00:00:00:99"
+    assert await session.connect()
+    assert any("identity address" in e[2] for e in session.events if e[0] == "log")

@@ -68,7 +68,7 @@ class MainWindow(QMainWindow):
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addAction(self.log_dock.toggleViewAction())
 
-        self.views: dict[str, DeviceView] = {}  # address -> tab
+        self.views: dict[str, DeviceView] = {}  # scanner key (or address) -> tab
         self._closing = False
         self._ready_to_close = False
         self.show_status("Ready. Press 'Start scan' to discover devices.")
@@ -77,12 +77,17 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(msg, 6000)
 
     # -- device tabs -----------------------------------------------------
-    def open_device(self, address: str) -> None:
-        view = self.views.get(address)
+    def open_device(self, key: str) -> None:
+        """Open (or show) the tab of a scanner row (its key) or an address."""
+        view = self.views.get(key)
         if view is None:
-            entry = self.scanner.devices.get(address)
-            device = entry.device if entry else address
+            entry = self.scanner.entry_for(key)
+            device = entry.device if entry else key
             session = DeviceSession(device, entry.name if entry else None, self)
+            if entry is not None:
+                # Always connect to the address the device is advertising with now.
+                session.latest_device = lambda k=entry.key: (
+                    e.device if (e := self.scanner.devices.get(k)) else None)
             source = f"{session.name} · {session.address}" if session.name != "N/A" else session.address
             session.log.connect(lambda level, msg, src=source: self.log_bus.log(level, src, msg))
             # Pairing in a device tab updates the Bond column right away.
@@ -90,7 +95,7 @@ class MainWindow(QMainWindow):
             self.app_capture.attach_session(session)
             view = DeviceView(session)
             view.title_changed.connect(lambda title, v=view: self._set_tab_title(v, title))
-            self.views[address] = view
+            self.views[key] = view
             self.tabs.addTab(view, session.name)
             self._set_tab_title(view, f"◌ {session.name}")
         self.tabs.setCurrentWidget(view)
@@ -108,7 +113,8 @@ class MainWindow(QMainWindow):
         if not isinstance(view, DeviceView):
             return
         self.tabs.removeTab(index)
-        self.views.pop(view.session.address, None)
+        for k in [k for k, v in self.views.items() if v is view]:
+            del self.views[k]
 
         async def cleanup() -> None:
             await view.session.disconnect()
