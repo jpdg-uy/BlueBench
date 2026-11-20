@@ -224,6 +224,11 @@ class PortInfo:
         return f"{self.device} — {self.description}" + ("  ★" if self.likely else "")
 
 
+def have_pyserial() -> bool:
+    import importlib.util
+    return importlib.util.find_spec("serial") is not None
+
+
 def list_ports() -> list[PortInfo]:
     try:
         from serial.tools import list_ports as lp

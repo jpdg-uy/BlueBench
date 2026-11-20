@@ -137,3 +137,40 @@ def test_decoder_identity_joins_exactly(sc, clock):
         assert set(sc.devices) == {RPA1, RPA2}
     finally:
         restore()
+
+
+def test_windows_lost_events_are_not_packets(sc, clock):
+    hear(sc, RPA1)
+    clock.now += 60
+    hear(sc, RPA1, rssi=-127)             # Windows: "not heard for a minute"
+    e = sc.entry_for(RPA1)
+    assert e.last_seen == 100.0 and e.rssi == -60 and e.adv_count == 1
+
+
+def test_look_alike_devices_are_not_guessed(sc, clock):
+    hear(sc, RPA1)
+    hear(sc, "7D:00:00:00:00:04")          # an identical second device
+    clock.now += 5
+    hear(sc, RPA2)                         # which one rotated? no way to tell
+    assert sc.entry_for(RPA2).addresses.keys() == {RPA2}
+
+
+def test_a_device_still_advertising_is_not_continued(sc, clock):
+    for _ in range(5):                     # advertises every 2 s
+        hear(sc, RPA1)
+        clock.now += 2
+    clock.now -= 1.5                       # 0.5 s after its last packet: not quiet
+    hear(sc, RPA2)
+    assert sc.entry_for(RPA2).addresses.keys() == {RPA2}
+
+
+def test_a_name_heard_later_undoes_a_wrong_guess(sc, clock):
+    hear(sc, RPA1, name="Alpha")
+    clock.now += 5
+    hear(sc, RPA2, name=None)              # first packet: no name yet, joined
+    assert sc.entry_for(RPA2).key == RPA1
+    clock.now += 0.2
+    hear(sc, RPA2, name="Bravo")           # scan response: another device
+    a, b = sc.entry_for(RPA1), sc.entry_for(RPA2)
+    assert a is not b and a.name == "Alpha" and b.name == "Bravo"
+    assert a.addresses.keys() == {RPA1} and a.address == RPA1 and a.joined is None

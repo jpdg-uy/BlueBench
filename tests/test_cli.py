@@ -289,3 +289,10 @@ def test_sniff_capture_picks_the_port_that_answers(capsys, monkeypatch):
     monkeypatch.setattr(ns, "open_serial", lambda p, b: ts.FakeSerial(p, b, answer_baud=0))
     code, _, err = run(capsys, "sniff", "capture", "-t", "0.1")
     assert code == 2 and "found COM4, COM5), none answered" in err
+
+
+def test_sniff_ports_says_when_pyserial_is_missing(capsys, monkeypatch):
+    from bluebench.sniffer import nrf_sniffer
+    monkeypatch.setattr(nrf_sniffer, "have_pyserial", lambda: False)
+    code, out, err = run(capsys, "sniff", "ports")
+    assert code == 1 and "pyserial is not installed" in err and out == ""

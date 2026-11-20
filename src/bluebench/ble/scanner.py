@@ -36,6 +36,10 @@ ROTATION_RSSI_DB = 15
 PRIVATE_KINDS = ("rpa", "nrpa")
 LATE_PACKET_S = 0.5   # an old address heard this soon after its last packet is a straggler
 BOTH_ALIVE_S = 2.0    # old and new address both heard within this: two devices
+# (both scaled up for devices that advertise slowly: see typical_gap)
+# Windows reports a device it stopped hearing (about a minute later) with this RSSI.
+# That is not a packet: it must not keep an old address alive.
+LOST_RSSI = -127
 
 
 def address_kind(address: str, address_type: str | None) -> str | None:
@@ -96,6 +100,7 @@ class DeviceEntry:
     addresses: dict[str, float] = field(default_factory=dict)
     first_heard: dict[str, float] = field(default_factory=dict)
     joined: str | None = None          # how addresses were joined: "identity" or "guess"
+    names: dict[str, str] = field(default_factory=dict)  # name heard on each address
     identity_address: str | None = None  # learnt when bonding: what the RPAs resolve to
 
     def __post_init__(self) -> None:
@@ -106,6 +111,12 @@ class DeviceEntry:
     @property
     def display_name(self) -> str:
         return self.name or "N/A"
+
+    def typical_gap(self) -> float:
+        """Median time between the packets heard lately (1 s until there are a few)."""
+        times = [t for t, _ in list(self.rssi_history)[-20:]]
+        gaps = sorted(b - a for a, b in zip(times, times[1:]) if b > a)
+        return gaps[len(gaps) // 2] if len(gaps) >= 3 else 1.0
 
     def smoothed_rssi(self, window_s: float = RSSI_SMOOTH_S, now: float | None = None) -> int:
         """Average RSSI of the advertisements seen in the last ``window_s`` seconds.
@@ -184,6 +195,8 @@ class Scanner(QObject):
         return e
 
     def _on_detection(self, device: BLEDevice, data: AdvertisementData) -> None:
+        if data.rssi is not None and data.rssi <= LOST_RSSI:
+            return
         now = time.monotonic()
         parsed = parse_advertisement(
             data.local_name,
@@ -197,6 +210,10 @@ class Scanner(QObject):
         entry = self.entry_for(addr)
         if entry is not None and entry.joined == "guess" and addr != entry.address:
             entry = self._undo_guess(entry, addr, now)
+        if (entry is not None and entry.joined == "guess" and data.local_name
+                and any(n != data.local_name for a, n in entry.names.items() if a != addr)):
+            # The name came in a later packet (scan response) and it is not this device's.
+            entry = self._split(entry, addr, now)
         if entry is None:
             kind = address_kind(addr, address_type_of(device))
             entry = self._continued(parsed, name, kind, data.rssi, now)
@@ -215,6 +232,8 @@ class Scanner(QObject):
         if parsed.identity is not None:
             self._by_identity.setdefault(parsed.identity, entry.key)
         entry.address = addr
+        if data.local_name:
+            entry.names[addr] = data.local_name
         entry.addresses[addr] = now
         entry.first_heard.setdefault(addr, now)
         entry.rssi = data.rssi
@@ -234,18 +253,18 @@ class Scanner(QObject):
             return e
         if not self.follow_rotation or kind not in PRIVATE_KINDS:
             return None
-        best: DeviceEntry | None = None
-        for e in self.devices.values():
-            if (e.address_kind != kind or e.joined == "identity"
-                    or now - e.last_seen > ROTATION_WINDOW_S
-                    or abs(e.smoothed_rssi(now=now) - rssi) > ROTATION_RSSI_DB
-                    or not _alike(e, adv, name)):
-                continue
-            if best is None or e.last_seen > best.last_seen:
-                best = e
-        if best is not None:
-            best.joined = "guess"
-            self._join(best, adv, name, kind)
+        candidates = [
+            e for e in self.devices.values()
+            if e.address_kind == kind and e.joined != "identity"
+            # gone quiet, not still advertising with its own address
+            and 0.8 * e.typical_gap() <= now - e.last_seen <= ROTATION_WINDOW_S
+            and abs(e.smoothed_rssi(now=now) - rssi) <= ROTATION_RSSI_DB
+            and _alike(e, adv, name)]
+        if len(candidates) != 1:
+            return None  # none, or several look-alike devices: no way to tell which
+        best = candidates[0]
+        best.joined = "guess"
+        self._join(best, adv, name, kind)
         return best
 
     def _join(self, e: DeviceEntry, adv: ParsedAdvertisement, name: str | None,
@@ -260,24 +279,43 @@ class Scanner(QObject):
         use: they are two devices. The newer addresses move to an entry of their own."""
         order = list(entry.addresses)  # oldest first
         newer = order[order.index(addr) + 1:] if addr in order else []
+        gap = entry.typical_gap()
         # A straggler right after the switch is not a second device, nor is an old
         # address coming back once the newer one has gone quiet.
-        if (not newer or now - entry.first_heard.get(newer[0], now) < LATE_PACKET_S
-                or now - max(entry.addresses[a] for a in newer) > BOTH_ALIVE_S):
+        if (not newer or now - entry.first_heard.get(newer[0], now) < max(LATE_PACKET_S, gap / 2)
+                or now - max(entry.addresses[a] for a in newer) > max(BOTH_ALIVE_S, 2 * gap)):
             return entry
-        moved = DeviceEntry(newer[0], entry.name, entry.rssi, entry.adv, entry.device,
-                            first_seen=entry.addresses[newer[0]], last_seen=entry.last_seen)
+        self._split(entry, newer[0], now)
+        return entry
+
+    def _split(self, entry: DeviceEntry, addr: str, now: float) -> DeviceEntry:
+        """Move ``addr`` and the addresses joined after it to an entry of their own,
+        which is returned (``entry`` itself if ``addr`` is its first address)."""
+        order = list(entry.addresses)
+        if addr not in order or order.index(addr) == 0:
+            return entry
+        newer = order[order.index(addr):]
+        moved = DeviceEntry(newer[0], entry.names.get(newer[0], entry.name), entry.rssi,
+                            entry.adv, entry.device, first_seen=entry.first_heard.get(newer[0], now),
+                            last_seen=max(entry.addresses[a] for a in newer))
         moved.address_kind = entry.address_kind
         moved.addresses = {a: entry.addresses.pop(a) for a in newer}
         moved.first_heard = {a: entry.first_heard.pop(a, now) for a in newer}
+        moved.names = {a: entry.names.pop(a) for a in newer if a in entry.names}
         moved.address = newer[-1]
+        moved.joined = "guess" if len(newer) > 1 else None
         self.devices[moved.key] = moved
         for a in newer:
             self._key_of[a] = moved.key
+        entry.address = order[order.index(addr) - 1]
+        entry.last_seen = entry.addresses[entry.address]
+        if entry.names:
+            entry.name = entry.names.get(entry.address) or next(iter(entry.names.values()))
         if len(entry.addresses) == 1:
             entry.joined = None
         self.device_updated.emit(moved.key)
-        return entry
+        self.device_updated.emit(entry.key)
+        return moved
 
 
 def _alike(e: DeviceEntry, adv: ParsedAdvertisement, name: str | None) -> bool:

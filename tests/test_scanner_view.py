@@ -245,12 +245,16 @@ def test_min_rssi_filter_ignores_a_single_weak_packet(view):
     assert C in order(view)                            # ...within the margin, still shown
 
 
-def test_row_follows_a_rotating_private_address(view):
+def test_row_follows_a_rotating_private_address(view, monkeypatch):
     from types import SimpleNamespace
+    from bluebench.ble import scanner as scanner_mod
     from bluebench.ui.scanner_view import COL_ADDRESS
     rnd = SimpleNamespace(adv=SimpleNamespace(bluetooth_address_type=SimpleNamespace(name="RANDOM")),
                           scan=None)
+    clock = iter([1000.0, 1005.0])
     for addr in ("4A:00:00:00:00:01", "5B:00:00:00:00:02"):
+        t = next(clock)
+        monkeypatch.setattr(scanner_mod.time, "monotonic", lambda t=t: t)
         view.scanner._on_detection(BLEDevice(addr, "Rotor", rnd),
                                    AdvertisementData("Rotor", {}, {}, [], None, -60, ()))
         view.model.flush()

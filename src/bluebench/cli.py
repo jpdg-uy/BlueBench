@@ -391,6 +391,11 @@ async def cmd_dfu(args, out: Out) -> int:
 
 
 async def cmd_sniff_ports(args, out: Out) -> int:
+    from .sniffer.nrf_sniffer import have_pyserial
+    if not have_pyserial():
+        print("error: cannot list serial ports: pyserial is not installed "
+              "(pip install pyserial)", file=sys.stderr)
+        return EXIT_FAILED
     ports = api.sniffer_ports()
     out.emit([{"port": p.device, "description": p.description, "likely_sniffer": p.likely,
                "bootloader": p.bootloader} for p in ports],
