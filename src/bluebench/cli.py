@@ -566,6 +566,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--follow", metavar="ADDRESS", help="follow this device into its connection")
     s.add_argument("--print", action="store_true", help="print every packet")
     s.set_defaults(fn=cmd_sniff_capture)
+    for add_commands in registry.cli_extensions():  # protocol extensions
+        add_commands(command, sys.modules[__name__])
     return parser
 
 

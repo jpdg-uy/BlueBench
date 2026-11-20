@@ -78,3 +78,39 @@ def test_filter_fields_reach_filter_api_and_box(clean, qapp):
         DeviceFilter(fields=(("kind", "x"),))
     assert field_terms("kind:7") == (("kind", "7"),) and field_terms("kind:x") is None
     assert field_terms("other:7") is None
+
+
+def test_value_decoders(clean):
+    registry.register_value_decoder(["2a37"], lambda v: [AdvField("Beat", str(v[1]))])
+    registry.register_value_decoder(["2a37"], lambda v: 1 / 0)          # broken: skipped
+    assert [(f.label, f.value) for f in registry.decode_value(uuids.normalize("2a37"),
+                                                               b"\x00\x48")] == [("Beat", "72")]
+    assert registry.decode_value("2a38", b"\x00") == []
+
+
+def test_cli_extensions_add_commands(clean, capsys):
+    from bluebench import cli
+
+    async def hello(args, out):
+        out.emit({"hi": args.who}, f"hi {args.who}")
+        return cli.EXIT_OK
+
+    registry.register_cli(lambda command, mod: command("hello", hello, "say hi")
+                          .add_argument("who"))
+    assert cli.main(["hello", "you"]) == 0
+    assert capsys.readouterr().out == "hi you\n"
+
+
+def test_device_pages_appear_when_they_apply(clean, qapp):
+    from PySide6.QtWidgets import QLabel
+    from bluebench.ble.connection import DeviceSession
+    from bluebench.ui.device_view import DeviceView
+    registry.register_device_page(registry.DevicePage(
+        "Extra", lambda s: True, lambda s, parent: QLabel("extra", parent)))
+    registry.register_device_page(registry.DevicePage(
+        "Never", lambda s: False, lambda s, parent: QLabel("never", parent)))
+    view = DeviceView(DeviceSession("AA:BB:CC:DD:EE:FF", "x"))
+    view._setup_tools()
+    view._setup_tools()                                                  # once only
+    titles = [view.pages.tabText(i) for i in range(view.pages.count())]
+    assert titles.count("Extra") == 1 and "Never" not in titles and titles[-1] == "Macros"

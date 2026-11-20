@@ -11,7 +11,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass, field
 
-from ..ble import uuids
+from ..ble import registry, uuids
 from ..ble.adv_parser import AdvField, parse_advertisement
 from .model import AirMeta, CapturedPacket, Field
 
@@ -468,6 +468,10 @@ class LLDecoder:
                 f.add("Value", _value_text(value), span=sp(vo, 4 + len(d)))
                 if value:
                     info += f", Value: {hexs(value[:12])}{'…' if len(value) > 12 else ''}"
+                decoded = registry.decode_value(handles[h], value) if h in handles else []
+                f.children += [_from_adv_field(x) for x in decoded]
+                if decoded:
+                    info += f" · {decoded[0].value}"
         elif op in (0x0B, 0x0D) and True:
             f.add("Value", _value_text(a), span=sp(o, o + len(a)))
             info += f", Value: {hexs(a[:12])}{'…' if len(a) > 12 else ''}"

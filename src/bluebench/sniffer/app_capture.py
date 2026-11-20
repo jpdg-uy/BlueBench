@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject
 
-from ..ble import uuids
-from .ll_decode import hexs
+from ..ble import registry, uuids
+from .ll_decode import _from_adv_field, hexs
 from .model import CapturedPacket, Field, PacketStore
 
 HOST = "BlueBench"
@@ -73,6 +73,8 @@ class AppCapture(QObject):
             f.add("Value", hexs(data) + (f'  "{data.decode()}"' if data and all(32 <= c < 127 for c in data) else ""),
                   span=(0, len(data)) if data else None)
             f.add("Length", f"{len(data)} bytes")
+            if uuid:
+                f.children += [_from_adv_field(x) for x in registry.decode_value(uuid, data)]
         return [f]
 
     # -- slots ------------------------------------------------------------------

@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel, QMen
                                QPushButton, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
-from ..ble import link, uuids
+from ..ble import link, registry, uuids
 from ..ble.connection import DeviceSession, is_cccd
 from ..ble.formats import ValueFormat, decode
 from ..tools.dfu.secure_dfu import supports_dfu
@@ -157,6 +157,7 @@ class DeviceView(QWidget):
         self.pages.currentChanged.connect(self._on_page_changed)
         self.nus: NusClient | None = None
         self.uart_view: UartView | None = None
+        self.extra_pages: dict[str, QWidget] = {}  # registered pages, by title
         self._uart_opened = False
         self._resume_nus = False
 
@@ -381,6 +382,11 @@ class DeviceView(QWidget):
         if self.nus is not None and self._resume_nus:
             self._resume_nus = False
             asyncio.ensure_future(self.nus.start())
+        for page in registry.device_pages():  # from protocol extensions
+            if page.title not in self.extra_pages and page.applies(self.session):
+                widget = page.factory(self.session, self)
+                self.extra_pages[page.title] = widget
+                self.pages.insertTab(self.pages.count() - 1, widget, page.title)
 
     def open_dfu(self) -> DfuDialog:
         if self.dfu_dialog is None:
