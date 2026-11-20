@@ -112,7 +112,7 @@ $devices | Where-Object rssi -gt -70 | Select-Object address, name, rssi
 Each [release](https://github.com/jpdg-uy/BlueBench/releases) has the wheel attached:
 
 ```
-py -m pip install bluebench-0.3.1-py3-none-any.whl
+py -m pip install bluebench-0.4.0-py3-none-any.whl
 ```
 
 Or straight from the repository, or `pip install -e .` from a clone:

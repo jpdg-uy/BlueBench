@@ -1,11 +1,11 @@
 VSVersionInfo(
-  ffi=FixedFileInfo(filevers=(0, 3, 1, 0), prodvers=(0, 3, 1, 0)),
+  ffi=FixedFileInfo(filevers=(0, 4, 0, 0), prodvers=(0, 4, 0, 0)),
   kids=[
     StringFileInfo([StringTable('040904B0', [
       StringStruct('FileDescription', 'BlueBench - BLE scanner and GATT explorer'),
       StringStruct('ProductName', 'BlueBench'),
-      StringStruct('FileVersion', '0.3.1'),
-      StringStruct('ProductVersion', '0.3.1'),
+      StringStruct('FileVersion', '0.4.0'),
+      StringStruct('ProductVersion', '0.4.0'),
       StringStruct('OriginalFilename', 'BlueBench.exe'),
     ])]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])]),
