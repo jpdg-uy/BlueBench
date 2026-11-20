@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QHBoxLayout, QHeade
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ..ble import pairing
-from ..ble.adv_filter import hex_query, manufacturer_matches
+from ..ble.adv_filter import byte_pattern, manufacturer_matches
 from ..ble.adv_parser import AdvField
 from ..ble.scanner import DeviceEntry, Scanner
 from .qt_compat import filter_change
@@ -188,7 +188,7 @@ class DeviceFilterProxy(QSortFilterProxyModel):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.text = ""
-        self.hex: str | None = None  # the text as hex bytes, for manufacturer data
+        self.hex = None  # the text as a byte pattern, for manufacturer data
         self.min_rssi = -100
         self.named_only = False
         self.natural = True  # discovery order until a header is clicked
@@ -235,7 +235,7 @@ class DeviceFilterProxy(QSortFilterProxyModel):
         with filter_change(self):
             if text is not None:
                 self.text = text.strip().lower()
-                self.hex = hex_query(text)
+                self.hex = byte_pattern(text)
             if min_rssi is not None:
                 self.min_rssi = min_rssi
                 self._rssi_shown.clear()
@@ -302,7 +302,9 @@ class ScannerView(QWidget):
             "Text matches the name, address and manufacturer.\n"
             "Hex bytes (e.g. 5900, 0x5900 or 59 00) also match manufacturer data that\n"
             "starts with them, as sent on air (company ID first, low byte first)\n"
-            "or with the company ID written as usual (0x0059 → 0059…).")
+            "or with the company ID written as usual (0x0059 → 0059…).\n"
+            "Wildcards: ? is any hex digit (?? any byte), * any number of bytes.\n"
+            "0059 ?? 0B skips the byte after the company ID; *0B finds 0B anywhere.")
         self.filter_edit.textChanged.connect(lambda t: self.proxy.set_filter(text=t))
         self.rssi_spin = QSpinBox(minimum=-100, maximum=0, value=-100, suffix=" dBm")
         self.rssi_spin.setToolTip("Hide devices weaker than this RSSI")

@@ -1,6 +1,7 @@
 """Advertisement filters shared by the scanner UI, the Python API and the CLI (no Qt)."""
 from __future__ import annotations
 
+import functools
 import re
 from dataclasses import dataclass
 
@@ -8,28 +9,50 @@ from . import uuids
 from .adv_parser import manufacturer_raw
 
 _HEX_SEPARATORS = re.compile(r"[\s:\-]")
+_PATTERN_CHARS = frozenset("0123456789abcdef?")
+
+
+@functools.lru_cache(maxsize=64)
+def byte_pattern(text: str) -> re.Pattern[str] | None:
+    """The text as a pattern of hex bytes, else None.
+
+    Plain bytes ("5900", "0x5900", "59 00") or bytes with wildcards: ``?`` is any
+    hex digit (``??`` any byte) and ``*`` any number of bytes, so "0059 ?? 0B00"
+    skips one byte and "*0B" finds 0B anywhere. Matching is anchored at the start
+    (see ``manufacturer_matches``); the pattern always lines up with whole bytes.
+    """
+    t = _HEX_SEPARATORS.sub("", text.strip().lower())
+    if t.startswith("0x"):
+        t = t[2:]
+    segments = t.split("*")
+    if not any(segments) or any(len(seg) % 2 or any(c not in _PATTERN_CHARS for c in seg)
+                                for seg in segments):
+        return None
+    any_bytes = "(?:[0-9a-f]{2})*"
+    return re.compile(any_bytes.join(seg.replace("?", "[0-9a-f]") for seg in segments))
 
 
 def hex_query(text: str) -> str | None:
     """The text as lowercase hex digits ("5900", "0x5900", "59 00"...), else None."""
-    t = _HEX_SEPARATORS.sub("", text.strip().lower())
-    if t.startswith("0x"):
-        t = t[2:]
-    if len(t) >= 2 and len(t) % 2 == 0 and all(c in "0123456789abcdef" for c in t):
-        return t
-    return None
+    p = byte_pattern(text)
+    return p.pattern if p and re.fullmatch("[0-9a-f]+", p.pattern) else None
 
 
-def manufacturer_matches(manufacturer_data: dict[int, bytes], query: str) -> bool:
-    """Whether some Manufacturer Specific Data starts with the hex bytes in ``query``.
+def manufacturer_matches(manufacturer_data: dict[int, bytes],
+                         query: str | re.Pattern[str]) -> bool:
+    """Whether some Manufacturer Specific Data starts with the bytes in ``query``.
 
-    Matches the bytes as sent on air (company ID little-endian, e.g. 59 00 ...),
-    and also the way the company ID is usually written (0x0059 → "0059...").
+    ``query`` is a ``byte_pattern`` (or its text). Matches the bytes as sent on air
+    (company ID little-endian, e.g. 59 00 ...), and also the way the company ID is
+    usually written (0x0059 → "0059...").
     """
+    pattern = query if isinstance(query, re.Pattern) else byte_pattern(query)
+    if pattern is None:
+        return False
     for company_id, payload in manufacturer_data.items():
         on_air = manufacturer_raw(company_id, payload).hex()
         written = f"{company_id:04x}{payload.hex()}"
-        if on_air.startswith(query) or written.startswith(query):
+        if pattern.match(on_air) or pattern.match(written):
             return True
     return False
 
@@ -41,7 +64,8 @@ class DeviceFilter:
     name     case-insensitive substring of the advertised name (whole name if
              ``exact_name``)
     address  exact address (case-insensitive)
-    mfr      hex prefix of manufacturer data, see ``manufacturer_matches``
+    mfr      manufacturer data starts with these hex bytes; ``?`` and ``*`` are
+             wildcards (see ``byte_pattern`` and ``manufacturer_matches``)
     service  advertised service UUID (short "180d" or full)
     min_rssi weakest signal accepted, in dBm
     """
@@ -54,8 +78,9 @@ class DeviceFilter:
     exact_name: bool = False
 
     def __post_init__(self) -> None:
-        if self.mfr is not None and hex_query(self.mfr) is None:
-            raise ValueError(f"Manufacturer filter must be hex bytes, e.g. 5900 (got '{self.mfr}')")
+        if self.mfr is not None and byte_pattern(self.mfr) is None:
+            raise ValueError("Manufacturer filter must be hex bytes, e.g. 5900 or 0059??0B"
+                             f" (got '{self.mfr}')")
 
     @property
     def is_empty(self) -> bool:
@@ -72,8 +97,7 @@ class DeviceFilter:
                 return False
         if self.min_rssi is not None and rssi < self.min_rssi:
             return False
-        if self.mfr is not None and not manufacturer_matches(manufacturer_data,
-                                                              hex_query(self.mfr) or ""):
+        if self.mfr is not None and not manufacturer_matches(manufacturer_data, self.mfr):
             return False
         if self.service is not None:
             want = uuids.normalize(self.service)

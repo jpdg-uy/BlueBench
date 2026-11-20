@@ -117,7 +117,11 @@ def concepts():
         [code("--mfr HEX"), "Los datos de fabricante empiezan con esos bytes. Sirve tanto el orden "
                             f"en el aire ({code('5900')}: el ID de fabricante va primero, byte bajo "
                             f"primero) como el ID escrito como se lee ({code('0059')}). Acepta "
-                            f"{code('0x')}, espacios y dos puntos, por ejemplo {code('0x5900')} o {QUOTED_HEX}."],
+                            f"{code('0x')}, espacios y dos puntos, por ejemplo {code('0x5900')} o {QUOTED_HEX}. "
+                            f"Comodines: {code('?')} es cualquier dígito hexa ({code('??')} un "
+                            f"byte cualquiera) y {code('*')} cualquier cantidad de bytes: "
+                            f"{code('0059??0B')} saltea un byte, {code('*0B')} busca 0B en "
+                            "cualquier lugar."],
         [code("--name TEXTO"), "El nombre contiene el texto (sin distinguir mayúsculas)."],
         [code("--service UUID"), f"Anuncia ese servicio ({code('180d')} o UUID completo)."],
         [code("--min-rssi DBM"), f"Señal al menos así de fuerte, por ejemplo {code('-70')}."],

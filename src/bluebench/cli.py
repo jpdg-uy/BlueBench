@@ -457,7 +457,8 @@ def _filter_args(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group("device filters")
     g.add_argument("--name", help="name contains this text (case-insensitive)")
     g.add_argument("--mfr", metavar="HEX", help="manufacturer data starts with these bytes, "
-                   "e.g. 5900 (as on air) or 0059 (company ID as written)")
+                   "e.g. 5900 (as on air) or 0059 (company ID as written); ? is any hex "
+                   "digit and * any number of bytes, e.g. 0059??0B")
     g.add_argument("--service", metavar="UUID", help="advertises this service")
     g.add_argument("--min-rssi", type=int, metavar="DBM", help="ignore weaker devices")
 

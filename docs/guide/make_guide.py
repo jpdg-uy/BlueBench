@@ -120,6 +120,11 @@ def scanner():
                "como salen en el aire (el ID de fabricante va primero, byte bajo primero) o con el "
                f"ID escrito como se suele leer ({code('0059…')}). En el detalle del anuncio se ven "
                f"las dos formas: {ui('Data')} y {ui('Raw (on air)')}. "
+               f"Se pueden usar comodines: {code('?')} es cualquier dígito hexa ({code('??')} "
+               f"un byte cualquiera) y {code('*')} cualquier cantidad de bytes. Por ejemplo, "
+               f"{code('0059 ?? 0B')} muestra los que tienen 0B en el segundo byte después del "
+               f"ID de fabricante, sea cual sea el primero, y {code('*0B')} los que tienen 0B en "
+               "cualquier lugar. "
                f"{ui('Min RSSI')} oculta los dispositivos más débiles (según su promedio, y con "
                "un margen de 3 dB para que los que están justo en el límite no aparezcan y "
                f"desaparezcan) y {ui('Named only')} oculta los que no anuncian nombre."))
