@@ -359,6 +359,12 @@ class ScannerView(QWidget):
             "signal goes quiet is taken as the same device. Applies to new addresses.")
         self.join_check.toggled.connect(lambda on: setattr(scanner, "follow_rotation", on))
         self.count_label = QLabel("0 devices")
+        # Fixed width, right-aligned: the bar must not move as the counts change.
+        self.count_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.count_label.setMinimumWidth(
+            self.count_label.fontMetrics().horizontalAdvance("8888 / 8888 devices") + 8)
+        self.count_label.setToolTip("Shown / all devices. While the pointer is over the list "
+                                    "the rows keep their places;\nthey re-sort when it leaves.")
 
         bar = QHBoxLayout()
         for w in (self.scan_btn, clear_btn, self.connect_btn):
@@ -444,8 +450,8 @@ class ScannerView(QWidget):
         self._update_count()
 
     def _update_count(self) -> None:
-        text = f"{self.proxy.rowCount()} / {self.model.rowCount()} devices"
-        self.count_label.setText(text + ("  ·  order paused" if self.order_paused else ""))
+        # The pause is not shown in the bar: changing the text there moved the buttons.
+        self.count_label.setText(f"{self.proxy.rowCount()} / {self.model.rowCount()} devices")
 
     def _clear(self) -> None:
         self.scanner.clear()

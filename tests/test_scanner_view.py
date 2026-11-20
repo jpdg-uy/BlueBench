@@ -196,7 +196,7 @@ def test_order_pauses_while_the_pointer_is_over_the_list(view):
     QCoreApplication.sendEvent(view.table.viewport(), QEvent(QEvent.Type.Enter))
     assert view.order_paused
     view._tick()
-    assert "order paused" in view.count_label.text()
+    assert "paused" not in view.count_label.text()      # nothing in the bar moves
 
     set_rssi(view, A, -40)
     view.model.refresh_sort_keys()

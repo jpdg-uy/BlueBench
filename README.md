@@ -23,7 +23,7 @@ Found a bug or have an idea? [Open an issue](https://github.com/jpdg-uy/BlueBenc
 
 - Rows do not jump around: sorting by RSSI uses the average of the last few seconds, rows
   change places at most every 2 s, and ties keep discovery order. While the pointer is over
-  the list the order is paused (**order paused** next to the device count): values keep updating and new
+  the list the order is paused: values keep updating and new
   devices are added at the end, so the row you aim at stays put. **Min RSSI** also uses the
   average, with a 3 dB margin so devices at the threshold do not flicker in and out.
 - The filter also takes hex bytes (`5900`, `0x5900`, `59 00`): it then shows devices whose

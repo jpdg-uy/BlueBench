@@ -110,8 +110,8 @@ def scanner():
     s.append(B("La lista se actualiza todo el tiempo, pero las filas no saltan: al ordenar por RSSI "
                "se usa el promedio de los últimos segundos y las filas cambian de lugar como mucho "
                "cada 2 segundos. Con empates se mantiene el orden en que aparecieron. Mientras el "
-               "mouse está sobre la lista el orden queda en pausa (junto al contador de "
-               f"dispositivos dice {ui('order paused')}): los valores se siguen actualizando y los dispositivos "
+               "mouse está sobre la lista el orden queda en pausa: los valores se siguen "
+               "actualizando y los dispositivos "
                "nuevos se agregan al final, así que se puede elegir uno sin que se mueva. Al sacar "
                "el mouse se reordena."))
     s.append(B("El cuadro de filtro busca por nombre, dirección o fabricante. "
