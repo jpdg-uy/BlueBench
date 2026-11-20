@@ -174,3 +174,18 @@ def test_a_name_heard_later_undoes_a_wrong_guess(sc, clock):
     a, b = sc.entry_for(RPA1), sc.entry_for(RPA2)
     assert a is not b and a.name == "Alpha" and b.name == "Bravo"
     assert a.addresses.keys() == {RPA1} and a.address == RPA1 and a.joined is None
+
+
+def test_irk_resolution_joins_exactly_among_look_alikes(sc, clock):
+    from bluebench.ble import irk
+    key = bytes(range(16))
+    sc.keys = irk.KeyRing([irk.IdentityKey("Board 7", key)])
+    a1, a2 = irk.make_rpa(key, b"\x01\x02\x03"), irk.make_rpa(key, b"\x04\x05\x06")
+    hear(sc, a1)
+    hear(sc, "7D:00:00:00:00:04")          # a look-alike, still advertising
+    clock.now += 0.1                       # the new address right away, and not quiet
+    hear(sc, a2, rssi=-90)                 # even with a very different signal
+    e = sc.entry_for(a2)
+    assert e is sc.entry_for(a1) and e.joined == "identity" and e.resolved_by == "Board 7"
+    assert e.adv.identity == ("irk", "Board 7")
+    assert sc.entry_for("7D:00:00:00:00:04") is not e

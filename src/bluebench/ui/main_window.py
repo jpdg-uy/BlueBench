@@ -69,6 +69,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.log_dock.toggleViewAction())
         tools_menu = self.menuBar().addMenu("&Tools")
         tools_menu.addAction("Bonded devices…", self._show_bonds)
+        tools_menu.addAction("Identity keys (IRK)…", self._show_irks)
 
         self.views: dict[str, DeviceView] = {}  # scanner key (or address) -> tab
         self._closing = False
@@ -79,6 +80,12 @@ class MainWindow(QMainWindow):
         from .bonds_dialog import BondsDialog
         dlg = BondsDialog(self)
         dlg.finished.connect(lambda _: self.scanner_view.request_bond_refresh())
+        dlg.finished.connect(dlg.deleteLater)
+        dlg.open()
+
+    def _show_irks(self) -> None:
+        from .irk_dialog import IrkDialog
+        dlg = IrkDialog(self.scanner.keys, self)
         dlg.finished.connect(dlg.deleteLater)
         dlg.open()
 

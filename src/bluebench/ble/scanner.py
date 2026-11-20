@@ -23,6 +23,7 @@ from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
 from PySide6.QtCore import QObject, Signal
 
+from . import irk
 from .adv_parser import ParsedAdvertisement, parse_advertisement
 
 RSSI_HISTORY = 120
@@ -102,6 +103,7 @@ class DeviceEntry:
     joined: str | None = None          # how addresses were joined: "identity" or "guess"
     names: dict[str, str] = field(default_factory=dict)  # name heard on each address
     identity_address: str | None = None  # learnt when bonding: what the RPAs resolve to
+    resolved_by: str | None = None     # label of the user's IRK that resolves its RPAs
 
     def __post_init__(self) -> None:
         self.key = self.key or self.address
@@ -154,6 +156,7 @@ class Scanner(QObject):
         self._key_of: dict[str, str] = {}          # any address seen -> entry key
         self._by_identity: dict[tuple, str] = {}
         self.follow_rotation = True                # join rotating private addresses
+        self.keys: irk.KeyRing = irk.keyring()     # the user's IRKs (resolve RPAs exactly)
 
     @property
     def is_scanning(self) -> bool:
@@ -207,6 +210,10 @@ class Scanner(QObject):
         )
         addr = device.address
         name = data.local_name or device.name
+        key = self.keys.resolve(addr)
+        if key is not None:
+            # An exact identity: it beats both the decoders' and any guess.
+            parsed.identity = ("irk", key.label)
         entry = self.entry_for(addr)
         if entry is not None and entry.joined == "guess" and addr != entry.address:
             entry = self._undo_guess(entry, addr, now)
@@ -232,6 +239,8 @@ class Scanner(QObject):
         if parsed.identity is not None:
             self._by_identity.setdefault(parsed.identity, entry.key)
         entry.address = addr
+        if key is not None:
+            entry.resolved_by = key.label
         if data.local_name:
             entry.names[addr] = data.local_name
         entry.addresses[addr] = now

@@ -29,12 +29,13 @@ class ScanResult:
     beacon: str | None = None
     packets: int = 1
     device: Any = field(default=None, repr=False, compare=False)  # bleak BLEDevice
+    resolved_by: str | None = None  # label of the IRK that resolves its private address
 
     @classmethod
     def from_entry(cls, e: DeviceEntry) -> "ScanResult":
         return cls(e.address, e.name, e.rssi, dict(e.adv.manufacturer_data),
                    list(e.adv.service_uuids), dict(e.adv.service_data), e.adv.tx_power,
-                   e.adv.beacon, e.adv_count, e.device)
+                   e.adv.beacon, e.adv_count, e.device, e.resolved_by)
 
     def to_dict(self) -> dict:
         """JSON-ready form: bytes as lowercase hex, company IDs as 0xNNNN."""
@@ -51,6 +52,7 @@ class ScanResult:
             "tx_power": self.tx_power,
             "beacon": self.beacon,
             "packets": self.packets,
+            "resolved_by": self.resolved_by,
         }
 
 

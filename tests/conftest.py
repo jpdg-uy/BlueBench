@@ -34,3 +34,10 @@ def _isolated_macro_library(monkeypatch):
     """Never read or write the real ~/.bluebench/macros.json from tests."""
     from bluebench.core import macros
     monkeypatch.setattr(macros, "_library", macros.MacroLibrary(path=None))
+
+
+@pytest.fixture(autouse=True)
+def _isolated_irks(monkeypatch):
+    """Never read or write the real ~/.bluebench/irks.json from tests."""
+    from bluebench.ble import irk
+    monkeypatch.setattr(irk, "_default", irk.KeyRing())

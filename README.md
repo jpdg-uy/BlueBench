@@ -32,6 +32,13 @@ Found a bug or have an idea? [Open an issue](https://github.com/jpdg-uy/BlueBenc
   details show both forms (**Data** and **Raw (on air)**).
 - **Bond** column: 🔒 marks devices bonded with this PC (refreshed every 10 s and right after
   pairing in the app). Devices using a changing private address may only match once connected.
+- **Identity keys (IRK)** (Tools menu, or `bluebench-cli irk add LABEL HEX`): with a device's
+  IRK every private address it uses is recognised exactly (Core spec `ah()`), so its row follows
+  it among look-alikes and through instant address changes. Resolved rows show ⚿; filter with
+  `irk:LABEL` (CLI `--irk LABEL`). `bluebench-cli irk resolve ADDRESS` says which key made an
+  address. Keys are stored in `~/.bluebench/irks.json`.
+- Windows resolves the private addresses of *bonded* devices itself and reports them with the
+  address stored at bonding, not the one on air: use the on-air address with the sniffer.
 - Right-click a device → **Pin to top** keeps it first (📌, bold) under any sort order, until
   you unpin it or close the app. The menu also has Connect and Copy address.
 

@@ -132,7 +132,7 @@ def _scan_table(results: list[api.ScanResult]) -> str:
         return "No devices found."
     rows = [f"{'ADDRESS':<17}  {'RSSI':>4}  {'NAME':<24}  DETAILS"]
     for r in results:
-        details = []
+        details = [f"IRK {r.resolved_by}"] if r.resolved_by else []
         for cid, payload in r.manufacturer_data.items():
             raw = cid.to_bytes(2, "little") + payload
             company = uuids.company_name(cid)
@@ -390,6 +390,33 @@ async def cmd_dfu(args, out: Out) -> int:
     return EXIT_OK
 
 
+async def cmd_irk(args, out: Out) -> int:
+    from .ble import irk
+    keys = irk.keyring()
+    if args.irk_command == "list":
+        out.emit([{"label": k.label, "irk": k.irk.hex()} for k in keys.keys],
+                 lambda: "\n".join(f"{k.label:24} {k.irk.hex(' ').upper()}" for k in keys.keys)
+                 or f"No keys ({keys.path}).")
+    elif args.irk_command == "add":
+        k = keys.add(args.label, args.irk)
+        keys.save()
+        out.emit({"label": k.label, "irk": k.irk.hex()}, f"Added {k.label} to {keys.path}")
+    elif args.irk_command == "remove":
+        if not keys.remove(args.label):
+            print(f"error: no key labelled {args.label!r}", file=sys.stderr)
+            return EXIT_FAILED
+        keys.save()
+        out.emit({"removed": args.label}, f"Removed {args.label}")
+    else:  # resolve
+        if not irk.is_rpa(args.address):
+            raise UsageError(f"{args.address} is not a resolvable private address")
+        k = keys.resolve(args.address)
+        out.emit({"address": args.address, "label": k.label if k else None},
+                 f"{args.address}: {k.label}" if k else f"{args.address}: no key resolves it")
+        return EXIT_OK if k else EXIT_NOT_FOUND
+    return EXIT_OK
+
+
 async def cmd_sniff_ports(args, out: Out) -> int:
     from .sniffer.nrf_sniffer import have_pyserial
     if not have_pyserial():
@@ -559,6 +586,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("package", metavar="ZIP")
     p.add_argument("--prn", type=int, default=0, metavar="N",
                    help="packet receipt notification interval (0 = off)")
+
+    p = command("irk", None, "identity keys (IRK) that resolve private addresses")
+    isub = p.add_subparsers(dest="irk_command", metavar="ACTION", required=True)
+    s = isub.add_parser("list", parents=[common], help="list the keys")
+    s.set_defaults(fn=cmd_irk)
+    s = isub.add_parser("add", parents=[common], help="add (or replace) a key")
+    s.add_argument("label")
+    s.add_argument("irk", metavar="HEX", help="16 bytes in hex, either byte order")
+    s.set_defaults(fn=cmd_irk)
+    s = isub.add_parser("remove", parents=[common], help="remove a key")
+    s.add_argument("label")
+    s.set_defaults(fn=cmd_irk)
+    s = isub.add_parser("resolve", parents=[common],
+                        help="which key made this private address (exit 3 if none)")
+    s.add_argument("address")
+    s.set_defaults(fn=cmd_irk)
 
     p = command("sniff", None, "nRF Sniffer for Bluetooth LE (experimental)")
     ssub = p.add_subparsers(dest="sniff_command", metavar="ACTION", required=True)

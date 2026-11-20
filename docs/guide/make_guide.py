@@ -142,6 +142,13 @@ def scanner():
                f"separan solas. {ui('Join RPAs')} desactiva la unión para direcciones nuevas. Al "
                f"conectar se usa siempre la dirección más reciente, y si cambia mientras conecta, "
                "BlueBench sigue a la nueva."))
+    s.append(B(f"<b>Identity keys (IRK).</b> Con el IRK de un dispositivo ({ui('Tools')} → "
+               f"{ui('Identity keys (IRK)…')}), BlueBench reconoce cada RPA que use, sin adivinar: "
+               "la fila lo sigue aunque haya otros iguales cerca o la dirección cambie de golpe. La "
+               f"columna {ui('Address')} lo marca con {code('⚿')}, el detalle dice con qué clave, y "
+               f"{code('irk:ETIQUETA')} filtra por él. El IRK se escribe en hex (16 bytes), en "
+               "cualquiera de los dos órdenes de bytes. El diálogo también dice qué clave resuelve "
+               f"una dirección. Las claves quedan en {code('~/.bluebench/irks.json')}."))
     s.append(B(f"Clic derecho sobre un dispositivo: {ui('Pin to top')} lo fija arriba de la lista "
                f"(con un pin y en negrita) aunque se ordene por otra columna; {ui('Unpin')} lo suelta. "
                f"También tiene {ui('Connect')} y {ui('Copy address')}. Los fijados se mantienen al "
@@ -244,10 +251,12 @@ def bonding():
     s.append(B("Si el emparejamiento falla, el log muestra el motivo: código incorrecto, tiempo "
                "agotado, cancelado, o que el dispositivo no cumple la seguridad pedida. El log "
                "también dice qué método pidió el dispositivo y qué protección se logró."))
-    s.append(B("Con un dispositivo que usa RPA, Windows guarda el bond con su <i>identity "
-               "address</i>, que se aprende al emparejar: el tooltip de "
-               f"{ui('Bonded')} la muestra. Si la conexión por la dirección actual falla, BlueBench "
-               "reintenta por la identity address, que Windows resuelve aunque la RPA haya cambiado."))
+    s.append(B("Con un dispositivo que usa RPA, Windows guarda el bond con la dirección del "
+               "dispositivo al emparejar (la <i>identity address</i>, o la RPA de ese momento) y su "
+               "IRK. Desde entonces resuelve solo las RPAs nuevas: el dispositivo aparece siempre "
+               f"con esa dirección, que el tooltip de {ui('Bonded')} muestra. Ojo: no es la que "
+               "va por el aire, así que en el sniffer (y con --follow) hay que usar la del aire. Si "
+               "la conexión por la dirección actual falla, BlueBench reintenta por la guardada."))
     s.append(B("<b>Bond desincronizado.</b> Si la placa se borró o se reflasheó, pierde sus claves "
                "pero Windows conserva las suyas, y las operaciones cifradas fallan. BlueBench lo "
                f"detecta y ofrece {ui('Remove bond and pair again')}: borra el bond, reconecta y "

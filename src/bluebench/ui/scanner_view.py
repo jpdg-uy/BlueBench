@@ -181,6 +181,8 @@ def address_text(e: DeviceEntry) -> str:
     text = e.address
     if e.address_kind in PRIVATE_KINDS:
         text += "  RPA" if e.address_kind == "rpa" else "  NRPA"
+    if e.resolved_by:
+        text += "  ⚿"
     if len(e.addresses) > 1:
         text += f"  ↻{len(e.addresses)}"
     return text
@@ -188,9 +190,12 @@ def address_text(e: DeviceEntry) -> str:
 
 def address_tip(e: DeviceEntry) -> str:
     lines = [f"{e.address}: {KIND_TEXT.get(e.address_kind or '', 'address type not reported')}"]
+    if e.resolved_by:
+        lines.append(f"Resolved with the IRK “{e.resolved_by}” (Tools → Identity keys)")
     if len(e.addresses) > 1:
         span = e.last_seen - min(e.first_heard.values())
-        how = ("same identity in the advertising data" if e.joined == "identity"
+        how = (f"they resolve with the IRK “{e.resolved_by}”" if e.resolved_by
+               else "same identity in the advertising data" if e.joined == "identity"
                else "a new private address appeared as the previous one went quiet "
                     "(same name, data and signal)")
         lines.append(f"{len(e.addresses)} addresses in {span:.0f} s, joined because {how}:")
@@ -533,6 +538,7 @@ class ScannerView(QWidget):
         rows = [
             AdvField("Address", e.address),
             AdvField("Address type", KIND_TEXT.get(e.address_kind or "", "not reported")),
+            *([AdvField("Resolved with IRK", e.resolved_by)] if e.resolved_by else []),
             *([AdvField("Addresses used", str(len(e.addresses)),
                         [AdvField(a, "current" if a == e.address else "")
                          for a in reversed(list(e.addresses))])]

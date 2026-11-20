@@ -125,6 +125,8 @@ def concepts():
         [code("--name TEXTO"), "El nombre contiene el texto (sin distinguir mayúsculas)."],
         [code("--service UUID"), f"Anuncia ese servicio ({code('180d')} o UUID completo)."],
         [code("--min-rssi DBM"), f"Señal al menos así de fuerte, por ejemplo {code('-70')}."],
+        [code("--irk ETIQUETA"), "Su dirección privada se resuelve con esa clave del llavero "
+                                 f"(ver {code('irk')})."],
         [code("--timeout S"), "Cuánto buscar el dispositivo (10 s por defecto)."],
     ]))
     s.append(P("No se puede dar una dirección y filtros a la vez. Si nada coincide en el tiempo "
@@ -383,6 +385,26 @@ DFU 100%  151552/151552 bytes
 DFU complete: 148.0 KB in 41.3 s
 """,
         "líneas de progreso (event, sent, total) y al final ok, summary, bytes y seconds.")
+
+    s += command(
+        "irk: claves que resuelven direcciones privadas",
+        f"{CLI} irk list\n"
+        f"{CLI} irk add ETIQUETA HEX\n"
+        f"{CLI} irk remove ETIQUETA\n"
+        f"{CLI} irk resolve DIRECCIÓN",
+        "Maneja el llavero de IRKs (el mismo de Tools → Identity keys en la app). Con el IRK de un "
+        "dispositivo, scan, find y el scanner reconocen cada RPA que use, sin adivinar, y el "
+        "filtro --irk ETIQUETA lo encuentra aunque cambie de dirección. El IRK son 16 bytes en "
+        "hex, en cualquiera de los dos órdenes de bytes.",
+        [[code("resolve"), "Dice qué clave generó esa dirección; termina con código 3 si ninguna."]],
+        f"""
+PS> {CLI} irk add "Placa 3" EC0234A357C8AD05341010A60A397D9B
+PS> {CLI} irk resolve 70:81:94:0D:FB:AA
+70:81:94:0D:FB:AA: Placa 3
+PS> {CLI} scan --irk "Placa 3"
+""",
+        "list da label e irk; resolve da address y label (null si ninguna); scan agrega "
+        "resolved_by a cada dispositivo.")
 
     s += command(
         "sniff: captura con el nRF Sniffer (experimental)",
