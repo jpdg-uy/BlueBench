@@ -42,6 +42,10 @@ class DeviceSession(QObject):
     bond_changed = Signal(object)
     pairing_changed = Signal(bool)  # a pair/unpair operation started / finished
     link_changed = Signal()  # connection parameters / PHY / priority
+    # An operation failed because the link is not (properly) encrypted: the
+    # attribute needs a bond, or the bond Windows has is no longer valid on the
+    # device. Carries the error text.
+    auth_failed = Signal(str)
     # Successful characteristic operations, for the macro recorder:
     # op ("read" | "write" | "subscribe" | "unsubscribe"), handle, data, with_response
     operation = Signal(str, int, bytes, bool)
@@ -259,14 +263,24 @@ class DeviceSession(QObject):
         self.pairing_changed.emit(busy)
 
     async def refresh_bond(self) -> bool | None:
-        self._set_bonded(await pairing.bond_state(self._client, self.address))
+        bonded = await pairing.bond_state(self._client, self.address)
+        if bonded:
+            self._learn_identity(pairing.identity_address(self._client))
+        self._set_bonded(bonded)
         return self.bonded
+
+    def _learn_identity(self, address: str | None) -> None:
+        if address and address != self.identity_address:
+            self.identity_address = address
+            if address != self.address:
+                self._log("info", f"Identity address {address} (advertises as {self.address})")
 
     async def pair(self, prompt: pairing.Prompt) -> bool:
         if not self._require_connected() or self.pairing_busy:
             return False
         self._set_pairing_busy(True)
         self._log("info", "Pairing…")
+        before = await pairing.bonded_addresses()
         try:
             level = await pairing.pair(self._client, prompt, self._log)
         except pairing.PairingError as exc:
@@ -276,6 +290,12 @@ class DeviceSession(QObject):
             self._set_pairing_busy(False)
         self.protection_level = level
         self._log("info", f"Bonded ({level})")
+        # The bond is stored under the identity address the device sent while
+        # pairing: the one bond that was not there before.
+        after = await pairing.bonded_addresses()
+        new = (after - before) if after is not None and before is not None else set()
+        self._learn_identity(next(iter(new)) if len(new) == 1
+                             else pairing.identity_address(self._client))
         # Trust the OS's view when it has one; otherwise the success itself.
         state = await pairing.bond_state(self._client, self.address)
         self._set_bonded(True if state is None else state)
@@ -290,7 +310,8 @@ class DeviceSession(QObject):
         if self.is_connected:
             self._user_disconnect = True
         try:
-            await pairing.unpair(self._client, self.address)
+            await pairing.unpair(self._client, self.identity_address or self.address,
+                                 None if self.name == "N/A" else self.name)
         except pairing.PairingError as exc:
             self._user_disconnect = False
             self._log("error", f"Unpair failed: {exc}")
@@ -298,8 +319,24 @@ class DeviceSession(QObject):
         finally:
             self._set_pairing_busy(False)
         self._log("info", "Bond removed")
+        self.identity_address = None
         self._set_bonded(False)
         return True
+
+    async def repair(self, prompt: pairing.Prompt) -> bool:
+        """Remove the bond, reconnect and pair again: for a device that lost its keys
+        (erased, reflashed) while Windows kept the bond."""
+        if self.bonded is not False and not await self.unpair():
+            return False
+        await asyncio.sleep(1.0)  # Windows drops the link after unpairing
+        if not self.is_connected and not await self.connect():
+            return False
+        return await self.pair(prompt)
+
+    def _op_failed(self, what: str, exc: BaseException) -> None:
+        self._log("error", f"{what} failed: {_err(exc)}")
+        if pairing.is_auth_error(exc):
+            self.auth_failed.emit(str(exc))
 
     # -- link parameters ------------------------------------------------------
     @property
@@ -349,7 +386,7 @@ class DeviceSession(QObject):
             async with self._op_lock:
                 value = bytes(await self._client.read_gatt_char(ch))  # type: ignore[union-attr]
         except Exception as exc:
-            self._log("error", f"Read {_label(ch)} failed: {_err(exc)}")
+            self._op_failed(f"Read {_label(ch)}", exc)
             return None
         self._log("info", f"Read {_label(ch)}: {_fmt(value)}")
         self.value_updated.emit(handle, value, "read")
@@ -370,7 +407,7 @@ class DeviceSession(QObject):
             async with self._op_lock:
                 await self._client.write_gatt_char(ch, data, response=response)  # type: ignore[union-attr]
         except Exception as exc:
-            self._log("error", f"Write {_label(ch)} failed: {_err(exc)}")
+            self._op_failed(f"Write {_label(ch)}", exc)
             return False
         if quiet:
             return True
@@ -394,7 +431,7 @@ class DeviceSession(QObject):
                     await self._client.stop_notify(ch)  # type: ignore[union-attr]
         except Exception as exc:
             verb = "Enable" if enable else "Disable"
-            self._log("error", f"{verb} {kind} on {_label(ch)} failed: {_err(exc)}")
+            self._op_failed(f"{verb} {kind} on {_label(ch)}", exc)
             return False
         (self.notifying.add if enable else self.notifying.discard)(handle)
         self._log("info", f"{kind.capitalize()} {'enabled' if enable else 'disabled'} for {_label(ch)}")

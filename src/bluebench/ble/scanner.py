@@ -96,6 +96,7 @@ class DeviceEntry:
     addresses: dict[str, float] = field(default_factory=dict)
     first_heard: dict[str, float] = field(default_factory=dict)
     joined: str | None = None          # how addresses were joined: "identity" or "guess"
+    identity_address: str | None = None  # learnt when bonding: what the RPAs resolve to
 
     def __post_init__(self) -> None:
         self.key = self.key or self.address

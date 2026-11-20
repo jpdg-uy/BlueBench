@@ -13,6 +13,7 @@ import asyncio
 import re
 import sys
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from bleak import BleakClient
@@ -28,6 +29,10 @@ Prompt = Callable[[str, str], Awaitable["str | bool | None"]]
 
 # DevicePairingKinds flag values (Windows.Devices.Enumeration).
 _KINDS = {0x1: "confirm", 0x2: "display_pin", 0x4: "provide_pin", 0x8: "confirm_pin"}
+KIND_TEXT = {"confirm": "Just Works (no passkey)",
+             "display_pin": "passkey entry: BlueBench shows it, type it on the device",
+             "provide_pin": "passkey entry: the device shows it, type it here",
+             "confirm_pin": "numeric comparison"}
 _ALL_KINDS = 0x1 | 0x2 | 0x4 | 0x8
 
 _STATUS_TEXT = {
@@ -81,6 +86,8 @@ def handle_request(loop: asyncio.AbstractEventLoop, prompt: Prompt, args: Any,
     deferral = args.get_deferral()
 
     async def answer() -> None:
+        if log:  # here, on the loop: not on the WinRT thread
+            log("info", f"The device asks for {KIND_TEXT.get(kind, kind)}")
         try:
             if kind not in _KINDS.values():
                 if log:
@@ -102,6 +109,25 @@ def handle_request(loop: asyncio.AbstractEventLoop, prompt: Prompt, args: Any,
 
 
 # -- public API ----------------------------------------------------------
+# ATT errors that mean "this needs (working) encryption": insufficient
+# authentication 0x05, insufficient encryption 0x0F, encryption key size 0x0C.
+_AUTH_ERROR = re.compile(r"insufficient (authentication|encryption)|encryption key size"
+                         r"|protocol error:? ?0x0?(5|c|f)\b|authentication failure"
+                         r"|\bpin or key missing\b|\bkey missing\b", re.IGNORECASE)
+
+
+def is_auth_error(error: BaseException | str) -> bool:
+    """Whether an operation failed because the link is not (properly) encrypted."""
+    return bool(_AUTH_ERROR.search(str(error)))
+
+
+@dataclass(frozen=True)
+class BondInfo:
+    address: str   # identity address, as Windows stores the bond
+    name: str
+    id: str        # Windows device id, for unpair_bond()
+
+
 _ID_ADDRESS = re.compile(r"([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})$")
 
 
@@ -111,8 +137,8 @@ def address_from_device_id(device_id: str) -> str | None:
     return m.group(1).upper() if m else None
 
 
-async def bonded_addresses() -> set[str] | None:
-    """Addresses of all BLE devices bonded with this PC, or None if unknown.
+async def bonded_devices() -> list[BondInfo] | None:
+    """All BLE devices bonded with this PC, or None if unknown.
 
     One OS query for the whole list, cheap enough to repeat every few seconds.
     """
@@ -123,9 +149,39 @@ async def bonded_addresses() -> set[str] | None:
         from winrt.windows.devices.enumeration import DeviceInformation
         selector = BluetoothLEDevice.get_device_selector_from_pairing_state(True)
         infos = await DeviceInformation.find_all_async(selector, None)
-        return {a for a in (address_from_device_id(i.id) for i in infos) if a}
+        return [BondInfo(a, i.name or "", i.id) for i in infos
+                if (a := address_from_device_id(i.id))]
     except Exception:
         return None
+
+
+async def bonded_addresses() -> set[str] | None:
+    """Identity addresses of all bonded BLE devices, or None if unknown."""
+    bonds = await bonded_devices()
+    return None if bonds is None else {b.address for b in bonds}
+
+
+def identity_address(client: Any) -> str | None:
+    """The address Windows uses for a connected device: its identity address once
+    bonded (the advertised one may be a changing RPA)."""
+    req = _requester(client)
+    try:
+        return address_from_device_id(req.device_information.id) if req is not None else None
+    except Exception:
+        return None
+
+
+async def unpair_bond(device_id: str) -> None:
+    """Remove one bond listed by bonded_devices()."""
+    from winrt.windows.devices.enumeration import DeviceInformation, DeviceUnpairingResultStatus
+    try:
+        info = await DeviceInformation.create_from_id_async(device_id)
+        result = await info.pairing.unpair_async()
+    except Exception as exc:
+        raise PairingError(str(exc) or type(exc).__name__) from exc
+    if result.status not in (DeviceUnpairingResultStatus.UNPAIRED,
+                             DeviceUnpairingResultStatus.ALREADY_UNPAIRED):
+        raise PairingError(result.status.name.replace("_", " ").lower())
 
 
 
@@ -199,9 +255,11 @@ async def pair(client: Any, prompt: Prompt,
     return result.protection_level_used.name.replace("_", " ").lower()
 
 
-async def unpair(client: Any | None, address: str) -> None:
+async def unpair(client: Any | None, address: str, name: str | None = None) -> None:
     """Remove the bond. Works whether or not the device is connected.
 
+    ``address`` is best the identity address; when Windows does not know it (an
+    RPA), the bond is looked up by address, then by ``name`` if only one matches.
     On Windows this also drops the connection.
     """
     if not _is_winrt():
@@ -219,6 +277,18 @@ async def unpair(client: Any | None, address: str) -> None:
             info = await DeviceInformation.create_from_id_async(req.device_information.id)
             result = await info.pairing.unpair_async()
         else:
+            # Windows lists bonds by identity address; a device seen only with an
+            # RPA is found by its name when exactly one bond has it.
+            bonds = await bonded_devices() or []
+            match = [b for b in bonds if b.address == address.upper()]
+            if not match and name:
+                match = [b for b in bonds if b.name == name]
+            if len(match) > 1:
+                raise PairingError(f"{len(match)} bonds are named {name!r}: remove the right "
+                                   "one from the list of bonds")
+            if match:
+                await unpair_bond(match[0].id)
+                return
             dev = await BluetoothLEDevice.from_bluetooth_address_async(address_to_int(address))
             if dev is None:
                 raise PairingError("Windows does not know this device")

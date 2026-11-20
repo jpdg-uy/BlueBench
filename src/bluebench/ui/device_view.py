@@ -6,7 +6,7 @@ import time
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QActionGroup, QBrush, QColor, QFont
-from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel, QMenu,
+from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel, QMenu, QMessageBox,
                                QPushButton, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
@@ -18,7 +18,7 @@ from ..tools.nus import NusClient, has_nus
 from .dfu_dialog import DfuDialog
 from ..core import macros
 from .macro_view import MacroView
-from .pairing_prompt import PairingPrompt
+from .pairing_prompt import PairingPrompt, run_dialog
 from .uart_view import UartView
 from .value_dialog import WriteDialog
 
@@ -171,6 +171,8 @@ class DeviceView(QWidget):
         session.bond_changed.connect(lambda _: self._update_link_header())
         session.pairing_changed.connect(lambda _: self._update_link_header())
         session.link_changed.connect(self._update_link_header)
+        session.auth_failed.connect(self._on_auth_failed)
+        self._auth_box: QMessageBox | None = None
         self._on_state(session.state)
 
     # -- connection ------------------------------------------------------
@@ -243,7 +245,14 @@ class DeviceView(QWidget):
 
         bonded = s.bonded
         self.bond_label.setText({True: "🔒 Bonded", False: "Not bonded"}.get(bonded, ""))
-        self.bond_label.setToolTip("Bond (pairing keys) stored by Windows" if bonded is not None else "")
+        tip = "Bond (pairing keys) stored by Windows" if bonded is not None else ""
+        if bonded and s.identity_address:
+            tip += f"\nIdentity address: {s.identity_address}"
+            if s.identity_address != s.address:
+                tip += f" (advertises as {s.address})"
+        if bonded and s.protection_level:
+            tip += f"\nProtection: {s.protection_level}"
+        self.bond_label.setToolTip(tip)
         if s.pairing_busy:
             self.pair_btn.setText("Pairing…")
             self.pair_btn.setEnabled(False)
@@ -280,6 +289,44 @@ class DeviceView(QWidget):
 
     def _unpair(self) -> None:
         asyncio.ensure_future(self.session.unpair())
+
+    def _on_auth_failed(self, error: str) -> None:
+        """An operation needs encryption: offer to pair, or to redo a stale bond."""
+        if self._auth_box is not None or self.session.pairing_busy:
+            return  # one question at a time
+        asyncio.ensure_future(self._ask_about_auth(error))
+
+    async def _ask_about_auth(self, error: str) -> None:
+        bonded = self.session.bonded
+        if bonded:
+            text = (f"<b>{self.session.name}</b> refused the operation for lack of encryption, "
+                    "although Windows has a bond with it.<br><br>The device has probably lost "
+                    "its keys (erased, reflashed or bonds deleted) while Windows kept its own. "
+                    "Remove the bond and pair again?")
+            action = "Remove bond and pair again"
+        else:
+            text = (f"This attribute of <b>{self.session.name}</b> needs an encrypted link. "
+                    "Pair with the device?")
+            action = "Pair"
+        box = QMessageBox(QMessageBox.Icon.Warning, "Encryption needed",
+                          text + f"<br><br><small>{error}</small>", parent=self)
+        go = box.addButton(action, QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        self._auth_box = box
+        try:
+            await run_dialog(box)
+        finally:
+            self._auth_box = None
+        if box.clickedButton() is not go:
+            return
+        prompt = PairingPrompt(self, self.session.name)
+        try:
+            if bonded:
+                await self.session.repair(prompt)
+            else:
+                await self.session.pair(prompt)
+        finally:
+            prompt.close()
 
     # -- tree ------------------------------------------------------------
     def _populate(self) -> None:

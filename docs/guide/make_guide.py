@@ -130,8 +130,18 @@ def scanner():
                f"desaparezcan) y {ui('Named only')} oculta los que no anuncian nombre."))
     s.append(B("Los dispositivos que no se ven hace más de 10 segundos aparecen en gris."))
     s.append(B(f"La columna {ui('Bond')} marca con un candado los dispositivos emparejados con esta PC. Se "
-               "actualiza sola cada pocos segundos y al emparejar desde la app. Los dispositivos que "
-               "usan una dirección privada cambiante pueden no reconocerse hasta conectarse."))
+               "actualiza sola cada pocos segundos y al emparejar desde la app. Un dispositivo que "
+               "anuncia con una dirección privada cambiante (RPA) se reconoce una vez que se "
+               "emparejó desde BlueBench."))
+    s.append(B("<b>Direcciones privadas (RPA).</b> Muchos dispositivos cambian su dirección cada "
+               "tanto (algunos firmwares, cada pocos segundos). BlueBench mantiene una sola fila: la "
+               f"columna {ui('Address')} muestra la dirección actual, la marca {code('RPA')} y "
+               f"cuántas usó ({code('↻3')}); el detalle y el tooltip las listan. Se unen cuando una "
+               "dirección privada nueva aparece justo cuando otra con el mismo nombre, el mismo tipo "
+               "de datos y una señal parecida deja de anunciarse; si las dos siguen anunciando, se "
+               f"separan solas. {ui('Join RPAs')} desactiva la unión para direcciones nuevas. Al "
+               f"conectar se usa siempre la dirección más reciente, y si cambia mientras conecta, "
+               "BlueBench sigue a la nueva."))
     s.append(B(f"Clic derecho sobre un dispositivo: {ui('Pin to top')} lo fija arriba de la lista "
                f"(con un pin y en negrita) aunque se ordene por otra columna; {ui('Unpin')} lo suelta. "
                f"También tiene {ui('Connect')} y {ui('Copy address')}. Los fijados se mantienen al "
@@ -232,7 +242,18 @@ def bonding():
                f"{ui('Link → Remove bond')}) borra el bond; funciona aunque el dispositivo esté "
                "desconectado. Windows corta la conexión al borrar un bond, y es normal."))
     s.append(B("Si el emparejamiento falla, el log muestra el motivo: código incorrecto, tiempo "
-               "agotado, cancelado, o que el dispositivo no cumple la seguridad pedida."))
+               "agotado, cancelado, o que el dispositivo no cumple la seguridad pedida. El log "
+               "también dice qué método pidió el dispositivo y qué protección se logró."))
+    s.append(B("Con un dispositivo que usa RPA, Windows guarda el bond con su <i>identity "
+               "address</i>, que se aprende al emparejar: el tooltip de "
+               f"{ui('Bonded')} la muestra. Si la conexión por la dirección actual falla, BlueBench "
+               "reintenta por la identity address, que Windows resuelve aunque la RPA haya cambiado."))
+    s.append(B("<b>Bond desincronizado.</b> Si la placa se borró o se reflasheó, pierde sus claves "
+               "pero Windows conserva las suyas, y las operaciones cifradas fallan. BlueBench lo "
+               f"detecta y ofrece {ui('Remove bond and pair again')}: borra el bond, reconecta y "
+               "empareja de nuevo. Si el dispositivo no tiene bond, ofrece emparejar."))
+    s.append(B(f"{ui('Tools → Bonded devices…')} lista todos los bonds BLE de Windows (nombre e "
+               "identity address) para borrar los que quedaron viejos, de a uno o todos."))
     s.append(P("Prioridad de conexión (Windows 11)", h2))
     s.append(P(f"{ui('Link → Connection priority')} le pide a Windows uno de tres perfiles: "
                f"{ui('Balanced')}, {ui('High throughput')} (intervalo corto, ideal para "
@@ -403,11 +424,12 @@ def log_and_trouble():
          "celular): desconectalo de ahí. Revisá también el filtro y Min RSSI."],
         ["La conexión falla o tarda",
          "Acercá el dispositivo y reintentá. Si estaba emparejado con un firmware anterior, "
-         f"borrá el bond ({ui('Unpair')}) o quitalo desde la configuración de Bluetooth de Windows."],
+         f"borrá el bond ({ui('Unpair')} o {ui('Tools → Bonded devices…')})."],
         ["Servicios viejos después de actualizar el firmware",
          "Windows guarda en caché la tabla GATT de los dispositivos emparejados. Hacé Unpair y "
          "volvé a conectar."],
-        ["«Insufficient authentication»", f"La característica necesita bond: {ui('Pair')}."],
+        ["«Insufficient authentication»", f"La característica necesita bond: {ui('Pair')}. Si ya "
+         "había bond, la placa perdió sus claves: aceptá volver a emparejar."],
         ["El DFU falla a mitad de camino",
          f"Subí {ui('PRN')} a 10–20, acercá el dispositivo y reintentá: continúa donde quedó."],
         ["No se puede pedir MTU o PHY", "Windows no lo permite (sección 5); la app muestra los "

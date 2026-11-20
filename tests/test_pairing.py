@@ -83,6 +83,59 @@ async def test_security_error_suggests_pairing(view, monkeypatch):
     monkeypatch.setattr(FakeClient.instances[-1], "read_gatt_char", denied)
     assert await view.session.read(3) is None
     assert any("try Pair" in m for _, m in view.logs)
+    await settle()
+    box = view._auth_box
+    assert box is not None and "needs an encrypted link" in box.text()
+    assert await view.session.read(3) is None
+    await settle()
+    assert view._auth_box is box               # one question at a time
+    next(b for b in box.buttons() if b.text() == "Pair").click()
+    for _ in range(20):
+        await asyncio.sleep(0.01)
+    assert FakeClient.instances[-1].paired and view.session.bonded is True
+
+
+@pytest.mark.parametrize("text, auth", [
+    ("Protocol Error 0x05: Insufficient Authentication", True),
+    ("Protocol Error 0x0F: Insufficient Encryption", True),
+    ("Could not read: Protocol Error 0x0C", True),
+    ("PIN or Key Missing", True),
+    ("Protocol Error 0x0A: Attribute Not Found", False),
+    ("timed out", False),
+])
+def test_is_auth_error(text, auth):
+    assert pairing.is_auth_error(RuntimeError(text)) is auth
+
+
+async def test_stale_bond_is_repaired(view, monkeypatch):
+    """Windows has a bond the device forgot: unpair, reconnect, pair again."""
+    s = view.session
+    await s.connect()
+    assert await view._pair() and s.bonded is True
+    first = FakeClient.instances[-1]
+    monkeypatch.setattr(connection.asyncio, "sleep", _no_sleep)
+
+    async def denied(ch):
+        raise RuntimeError("Protocol Error 0x05: Insufficient Authentication")
+    monkeypatch.setattr(first, "read_gatt_char", denied)
+    got = []
+    s.auth_failed.connect(got.append)
+    assert await s.read(3) is None and got
+    await settle()
+    assert "lost its keys" in view._auth_box.text()
+    view._auth_box.reject()
+    await settle()
+    assert await s.repair(PairingPrompt(view, s.name))
+    assert first in FakeClient.unpaired or first.device in FakeClient.unpaired
+    assert s.is_connected and FakeClient.instances[-1] is not first
+    assert FakeClient.instances[-1].paired and s.bonded is True
+
+
+_real_sleep = asyncio.sleep
+
+
+async def _no_sleep(_s, *a):
+    await _real_sleep(0)
 
 
 # -- WinRT pairing-request bridge -----------------------------------------
@@ -127,7 +180,8 @@ async def test_handle_request_prompt_error_still_completes():
     args = FakeArgs(0x8, "1")
     pairing.handle_request(asyncio.get_running_loop(), prompt, args, lambda *a: logs.append(a))
     await settle()
-    assert args.completed and not args.accepted and logs[0][0] == "error"
+    assert args.completed and not args.accepted
+    assert logs[0] == ("info", "The device asks for numeric comparison") and logs[-1][0] == "error"
 
 
 def test_status_text():
@@ -253,3 +307,26 @@ async def test_priority_failure_logged(view, monkeypatch):
     monkeypatch.setattr(link, "request_priority", fail)
     assert not view.session.request_priority("power")
     assert any(lvl == "error" and "Windows 11" in m for lvl, m in view.logs)
+
+
+async def test_bonds_dialog_lists_and_removes(qapp, monkeypatch):
+    from bluebench.ui.bonds_dialog import BondsDialog
+    bonds = [pairing.BondInfo("C4:00:00:00:00:02", "Board B", "id-b"),
+             pairing.BondInfo("C4:00:00:00:00:01", "Board A", "id-a")]
+
+    async def listed():
+        return list(bonds)
+
+    async def remove(device_id):
+        bonds[:] = [b for b in bonds if b.id != device_id]
+    monkeypatch.setattr(pairing, "bonded_devices", listed)
+    monkeypatch.setattr(pairing, "unpair_bond", remove)
+    dlg = BondsDialog()
+    await dlg._refresh()
+    assert [dlg.list.topLevelItem(i).text(0) for i in range(2)] == ["Board A", "Board B"]
+    assert not dlg.remove_btn.isEnabled() and dlg.remove_all_btn.isEnabled()
+    dlg.list.topLevelItem(0).setSelected(True)
+    await dlg._remove_async(dlg._selected())
+    assert [b.name for b in bonds] == ["Board B"] and dlg.list.topLevelItemCount() == 1
+    assert "1 bonded" in dlg.status.text()
+    shiboken6.delete(dlg)

@@ -31,8 +31,8 @@ RSSI_ROLE = Qt.ItemDataRole.UserRole + 2   # latest RSSI, for the signal bar
 
 COL_NAME, COL_ADDRESS, COL_BOND, COL_RSSI, COL_INTERVAL, COL_INFO = range(6)
 HEADERS = ["Name", "Address", "Bond", "RSSI", "Interval", "Info"]
-BOND_TIP = ("Bonded (paired) with this PC. Devices that use a changing private address may "
-            "not be recognised until connected.")
+BOND_TIP = ("Bonded (paired) with this PC. A device that advertises with a changing "
+            "private address (RPA) is recognised once it has been bonded from BlueBench.")
 
 
 class DeviceTableModel(QAbstractTableModel):
@@ -105,6 +105,8 @@ class DeviceTableModel(QAbstractTableModel):
     def is_bonded(self, e: DeviceEntry | str) -> bool:
         if isinstance(e, str):
             return e.upper() in self.bonded
+        if e.identity_address and e.identity_address.upper() in self.bonded:
+            return True
         return any(a.upper() in self.bonded for a in e.addresses)
 
     def is_pinned_row(self, row: int) -> bool:

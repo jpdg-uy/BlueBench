@@ -67,11 +67,20 @@ class MainWindow(QMainWindow):
         self.resizeDocks([self.log_dock], [240], Qt.Orientation.Vertical)
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addAction(self.log_dock.toggleViewAction())
+        tools_menu = self.menuBar().addMenu("&Tools")
+        tools_menu.addAction("Bonded devices…", self._show_bonds)
 
         self.views: dict[str, DeviceView] = {}  # scanner key (or address) -> tab
         self._closing = False
         self._ready_to_close = False
         self.show_status("Ready. Press 'Start scan' to discover devices.")
+
+    def _show_bonds(self) -> None:
+        from .bonds_dialog import BondsDialog
+        dlg = BondsDialog(self)
+        dlg.finished.connect(lambda _: self.scanner_view.request_bond_refresh())
+        dlg.finished.connect(dlg.deleteLater)
+        dlg.open()
 
     def show_status(self, msg: str) -> None:
         self.statusBar().showMessage(msg, 6000)
@@ -90,8 +99,11 @@ class MainWindow(QMainWindow):
                     e.device if (e := self.scanner.devices.get(k)) else None)
             source = f"{session.name} · {session.address}" if session.name != "N/A" else session.address
             session.log.connect(lambda level, msg, src=source: self.log_bus.log(level, src, msg))
-            # Pairing in a device tab updates the Bond column right away.
-            session.bond_changed.connect(lambda _: self.scanner_view.request_bond_refresh())
+            if entry is not None:
+                session.identity_address = entry.identity_address
+            # Pairing in a device tab updates the Bond column right away, and the row
+            # learns the identity address its RPAs resolve to.
+            session.bond_changed.connect(lambda _, s=session, k=key: self._bond_changed(s, k))
             self.app_capture.attach_session(session)
             view = DeviceView(session)
             view.title_changed.connect(lambda title, v=view: self._set_tab_title(v, title))
@@ -101,6 +113,12 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentWidget(view)
         if view.session.state == "disconnected":
             asyncio.ensure_future(view.session.connect())
+
+    def _bond_changed(self, session: DeviceSession, key: str) -> None:
+        entry = self.scanner.entry_for(key)
+        if entry is not None:
+            entry.identity_address = session.identity_address if session.bonded else None
+        self.scanner_view.request_bond_refresh()
 
     def _set_tab_title(self, view: DeviceView, title: str) -> None:
         idx = self.tabs.indexOf(view)
